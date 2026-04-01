@@ -23,6 +23,43 @@ IROZHLAS_URL = "https://www.irozhlas.cz/"
 
 DEFAULT_COLOR = "#FF0000"
 TEXT_SPEED = "100"
+MAX_CHARS_PER_LINE = 15  # approximate chars that fit in 64px width with default font
+
+def word_wrap(text, max_chars):
+    """Wrap text at word boundaries to prevent mid-word breaks."""
+    words = text.split(" ")
+    lines = []
+    current_line = ""
+
+    for word in words:
+        # Handle words longer than max_chars - break them into chunks
+        if len(word) > max_chars:
+            if current_line:
+                lines.append(current_line)
+                current_line = ""
+
+            # Break long word into chunks using for loop
+            chunks = len(word) // max_chars + (1 if len(word) % max_chars else 0)
+            for i in range(chunks):
+                chunk = word[i * max_chars:(i + 1) * max_chars]
+                if i == chunks - 1:
+                    # Last chunk becomes current_line
+                    current_line = chunk
+                else:
+                    lines.append(chunk)
+        elif current_line == "":
+            current_line = word
+        elif len(current_line) + 1 + len(word) <= max_chars:
+            current_line = current_line + " " + word
+        else:
+            lines.append(current_line)
+            current_line = word
+
+    # Add the last line
+    if current_line:
+        lines.append(current_line)
+
+    return "\n".join(lines)
 
 def main(config):
     if config.str("media_source", MEDIA_SEZNAM) == MEDIA_SEZNAM:
@@ -90,7 +127,7 @@ def render_text(config, headlineText):
                 children = [
                     render.Image(src = iconFile, width = 12, height = 12),
                     render.WrappedText(
-                        content = headlineText,
+                        content = word_wrap(headlineText, MAX_CHARS_PER_LINE),
                         color = config.str("font_color", DEFAULT_COLOR),
                         width = 64,
                     ),
