@@ -99,9 +99,9 @@ def parse_head_line_seznam(htmlBody):
 
 def parse_head_line_irozhlas(htmlBody):
     #fetch the second <h3> element
-    html_elements = html(htmlBody).find("title")
+    doc = xpath.loads(htmlBody)
     
-    html_text = html_elements.eq(0).text()
+    html_text = doc.query("/rss/channel/item[1]/title")
 
     if html_text == "":
         html_text = "There is no news..."
