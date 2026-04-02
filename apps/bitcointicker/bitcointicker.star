@@ -136,6 +136,7 @@ def get_market_chart(coin_id, currency, period):
     return data["prices"]
 
 def get_data(url, ttl_seconds = 60 * 5):
+    print("bitcointicker:"+url);
     response = http.get(url = url, ttl_seconds = ttl_seconds)
     if response.status_code != 200:
         print("Coingecko request failed with status %d" % response.status_code)
