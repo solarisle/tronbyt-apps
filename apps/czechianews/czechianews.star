@@ -19,7 +19,7 @@ MEDIA_SEZNAM = "seznam"
 MEDIA_IROZHLAS = "irozhlas"
 
 SEZNAM_URL = "https://www.seznamzpravy.cz/"
-IROZHLAS_URL = "https://www.irozhlas.cz/"
+IROZHLAS_URL = "https://www.irozhlas.cz/rss/irozhlas"
 
 DEFAULT_COLOR = "#FF0000"
 TEXT_SPEED = "100"
@@ -99,11 +99,9 @@ def parse_head_line_seznam(htmlBody):
 
 def parse_head_line_irozhlas(htmlBody):
     #fetch the second <h3> element
-    html_elements = html(htmlBody).find("h3")
-    if html_elements.len() < 2:
-        html_text = ""
-    else:
-        html_text = html_elements.eq(2).text()
+    html_elements = html(htmlBody).find("title")
+    
+    html_text = html_elements.eq(0).text()
 
     if html_text == "":
         html_text = "There is no news..."
