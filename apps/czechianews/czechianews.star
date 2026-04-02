@@ -7,6 +7,7 @@ Author: solarisle
 
 load("html.star", "html")
 load("http.star", "http")
+load("xpath.star", "xpath")
 load("images/irozhlas_icon.webp", IROZHLAS_ICON_ASSET = "file")
 load("images/seznam_icon.webp", SEZNAM_ICON_ASSET = "file")
 load("render.star", "render")
