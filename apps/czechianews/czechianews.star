@@ -70,7 +70,7 @@ def main(config):
     if response.status_code != 200:
         return render.Root(
             child = render.WrappedText(
-                content = "Web source not availible now",
+                content = "Web source not availible now : " + str(response.status_code),
                 color = DEFAULT_COLOR,
                 width = 64,
             ),
