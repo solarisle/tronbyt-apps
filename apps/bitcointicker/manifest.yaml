@@ -1,8 +1,8 @@
 ---
 id: bitcointicker
 name: BitcoinTicker
-summary: Price of Bitcoin
-desc: Shows the price of Bitcoin. Choose to convert into USD, EUR, GBP, CNY, JPY, XAU (Gold) and many more.
+summary: Price of Cryptocurrency
+desc: Shows the price of any cryptocurrency using CoinGecko API. Supports Bitcoin, Ethereum, Dogecoin, and more. Choose to convert into USD, EUR, GBP, CNY, JPY, XAU (Gold) and many more.
 author: PMK (@pmk)
 fileName: bitcointicker.star
 packageName: bitcointicker

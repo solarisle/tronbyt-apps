@@ -11,6 +11,7 @@ load("humanize.star", "humanize")
 load("render.star", "render")
 load("schema.star", "schema")
 
+DEFAULT_COIN_ID = "bitcoin"
 DEFAULT_CURRENCY = "usd"
 DEFAULT_PERIOD = "24h"
 DEFAULT_SHOW_CURRENCY_ABBRIVIATION = True
@@ -22,7 +23,7 @@ COLOR_DIMMED = "#fff9"
 
 FONT = "tom-thumb"
 
-def print_market_data(currency, period, data, show_currency_abriviation = DEFAULT_SHOW_CURRENCY_ABBRIVIATION):
+def print_market_data(coin_name, currency, period, data, show_currency_abriviation = DEFAULT_SHOW_CURRENCY_ABBRIVIATION):
     percentage = get_percentage(data["price_change_percentage_{}_in_currency".format(period)][currency])
     price = humanize.comma(int(data["current_price"][currency]))
     currency_abbriviation = currency.upper() if show_currency_abriviation else ""
@@ -33,7 +34,7 @@ def print_market_data(currency, period, data, show_currency_abriviation = DEFAUL
                 main_align = "space_between",
                 children = [
                     render.Text(
-                        content = "Bitcoin",
+                        content = coin_name[0].upper() + coin_name[1:] if coin_name else "",
                         font = FONT,
                         color = COLOR_BITCOIN,
                     ),
@@ -119,16 +120,16 @@ def get_percentage(value):
         return int(value * 10) / 10
     return int(value)
 
-def get_market_data():
-    url = "https://api.coingecko.com/api/v3/coins/bitcoin?developer_data=false&community_data=false&tickers=false&localization=false"
+def get_market_data(coin_id):
+    url = "https://api.coingecko.com/api/v3/coins/{}?developer_data=false&community_data=false&tickers=false&localization=false".format(coin_id)
     data = get_data(url)
     if data == None:
-        return None
-    return data["market_data"]
+        return None, None
+    return data["name"], data["market_data"]
 
-def get_market_chart(currency, period):
+def get_market_chart(coin_id, currency, period):
     days = convert_period_to_days(period)
-    url = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency={}&days={}&precision=0".format(currency, days)
+    url = "https://api.coingecko.com/api/v3/coins/{}/market_chart?vs_currency={}&days={}&precision=0".format(coin_id, currency, days)
     data = get_data(url)
     if data == None:
         return None
@@ -167,12 +168,13 @@ def get_start_price(currency, period, market_data):
     return price - price_change
 
 def main(config):
+    coin_id = config.str("coin_id", DEFAULT_COIN_ID)
     currency = config.str("currency", DEFAULT_CURRENCY)
     period = config.str("period", DEFAULT_PERIOD)
     show_currency_abbriviation = config.bool("show_currency_abbriviation", DEFAULT_SHOW_CURRENCY_ABBRIVIATION)
 
-    market_data = get_market_data()
-    market_chart = get_market_chart(currency, period)
+    coin_name, market_data = get_market_data(coin_id)
+    market_chart = get_market_chart(coin_id, currency, period)
 
     if market_data == None or market_chart == None:
         return render.Root(
@@ -185,7 +187,7 @@ def main(config):
         child = render.Column(
             expanded = True,
             children = [
-                print_market_data(currency, period, market_data, show_currency_abbriviation),
+                print_market_data(coin_name, currency, period, market_data, show_currency_abbriviation),
                 print_market_chart(market_chart, start_price),
             ],
         ),
@@ -211,6 +213,13 @@ def get_schema():
     return schema.Schema(
         version = "1",
         fields = [
+            schema.Text(
+                id = "coin_id",
+                name = "Coin ID",
+                desc = "CoinGecko coin ID (e.g., bitcoin, ethereum, dogecoin).",
+                icon = "coins",
+                default = DEFAULT_COIN_ID,
+            ),
             schema.Dropdown(
                 id = "currency",
                 name = "Currency",
