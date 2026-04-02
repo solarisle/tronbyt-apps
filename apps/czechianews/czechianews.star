@@ -68,6 +68,7 @@ def main(config):
         response = http.get(IROZHLAS_URL, ttl_seconds = 300)
 
     if response.status_code != 200:
+        fail(str(response.status_code) + str(response.body))
         return render.Root(
             child = render.WrappedText(
                 content = "Web source not availible now : " + str(response.status_code) + str(response.body),
