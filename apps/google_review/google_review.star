@@ -9,13 +9,50 @@ load("encoding/json.star", "json")
 load("http.star", "http")
 load("render.star", "render")
 load("schema.star", "schema")
+load("images/star_filled.webp", STAR_FILLED_ASSET = "file")
+load("images/star_empty.webp", STAR_EMPTY_ASSET = "file")
 
 CACHE_TIMEOUT = 43200  # 12 hours
 MAX_CHARS_PER_LINE = 12  # approximate chars that fit in 64px width
 DEFAULT_TEXT_SPEED = "100"
 
-# SerpAPI Google Maps Reviews endpoint
-API_URL = "https://serpapi.com/search.json?engine=google_maps_reviews&data_id=0x4712a02b9c18c30b%3A0x620054ad98788b5a&sort_by=newestFirst&api_key=ef88d8e5775677bac44dfbe9c931f12aaf1d432c344b861d61267b9cef58080e"
+# Load star icons
+STAR_FILLED = STAR_FILLED_ASSET.readall()
+STAR_EMPTY = STAR_EMPTY_ASSET.readall()
+
+# Modern color palette
+COLOR_HEADER = "#E8F5E9"        # Light mint green
+COLOR_RATING = "#FFC107"        # Modern amber/gold
+COLOR_DATE = "#81D4FA"          # Modern light cyan
+COLOR_USER = "#FFB74D"          # Warm orange
+COLOR_SNIPPET = "#CE93D8"       # Modern purple
+
+def build_star_row(rating_int):
+    """Build a row of star icons based on rating"""
+    stars = []
+
+    # Add filled stars (yellow)
+    for i in range(rating_int):
+        stars.append(
+            render.Image(src = STAR_FILLED, width = 8, height = 8)
+        )
+
+    # Add empty stars (gray)
+    for i in range(5 - rating_int):
+        stars.append(
+            render.Image(src = STAR_EMPTY, width = 8, height = 8)
+        )
+
+    # Add rating number
+    stars.append(
+        render.Text(
+            content = " " + str(rating_int) + "/5",
+            color = COLOR_RATING,
+            font = "CG-pixel-3x5-mono",
+        )
+    )
+
+    return stars
 
 def word_wrap(text, max_chars):
     """Wrap text at word boundaries to prevent mid-word breaks."""
@@ -82,11 +119,9 @@ def main(config):
     snippet = review.get("snippet", "No comment provided")
 
     # Format rating display
+    rating_int = 0
     if rating:
         rating_int = int(rating)
-        rating_text = "*" * rating_int + "-" * (5 - rating_int) + " " + str(rating)
-    else:
-        rating_text = "No rating"
 
     return render.Root(
         delay = int(config.str("text_speed", DEFAULT_TEXT_SPEED)),
@@ -98,41 +133,42 @@ def main(config):
             child = render.Column(
                 cross_align = "center",
                 children = [
+                    # Header
                     render.Text(
                         content = "GOOGLE REVIEW",
-                        color = "#fff",
+                        color = COLOR_HEADER,
                         font = "CG-pixel-3x5-mono",
                     ),
-                    render.Text(
-                        content = "",
+                    render.Text(content = ""),
+
+                    # Rating with multiple stars
+                    render.Row(
+                        main_align = "center",
+                        cross_align = "center",
+                        children = build_star_row(rating_int if rating else 0),
                     ),
-                    render.Text(
-                        content = rating_text,
-                        color = "#FFD700",
-                        font = "CG-pixel-3x5-mono",
-                    ),
-                    render.Text(
-                        content = "",
-                    ),
+                    render.Text(content = ""),
+
+                    # Date
                     render.Text(
                         content = "Date: " + date,
-                        color = "#00FF00",
+                        color = COLOR_DATE,
                         font = "CG-pixel-3x5-mono",
                     ),
-                    render.Text(
-                        content = "",
-                    ),
+                    render.Text(content = ""),
+
+                    # User Name
                     render.Text(
                         content = "By: " + user_name,
-                        color = "#00FFFF",
+                        color = COLOR_USER,
                         font = "CG-pixel-3x5-mono",
                     ),
-                    render.Text(
-                        content = "",
-                    ),
+                    render.Text(content = ""),
+
+                    # Snippet
                     render.WrappedText(
                         content = word_wrap(snippet, MAX_CHARS_PER_LINE),
-                        color = "#FF69B4",
+                        color = COLOR_SNIPPET,
                         width = 64,
                     ),
                 ],
