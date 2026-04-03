@@ -1,0 +1,14 @@
+---
+id: google-review
+name: Google Review
+summary: Display Google Maps reviews
+desc: Shows the latest Google Maps review with rating, date, reviewer name, and snippet.
+author: Solarisle
+fileName: google_review.star
+packageName: google_review
+category: information
+tags:
+  - google-maps
+  - reviews
+  - rating
+  - restaurant
