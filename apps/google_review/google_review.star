@@ -31,16 +31,16 @@ def build_star_row(rating_int):
     """Build a row of star icons based on rating"""
     stars = []
 
-    # Add filled stars (yellow)
+    # Add filled stars (yellow gradient)
     for i in range(rating_int):
         stars.append(
-            render.Image(src = STAR_FILLED, width = 8, height = 8)
+            render.Image(src = STAR_FILLED, width = 10, height = 10)
         )
 
-    # Add empty stars (gray)
+    # Add empty stars (outlined)
     for i in range(5 - rating_int):
         stars.append(
-            render.Image(src = STAR_EMPTY, width = 8, height = 8)
+            render.Image(src = STAR_EMPTY, width = 10, height = 10)
         )
 
     # Add rating number
