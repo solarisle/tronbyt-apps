@@ -89,6 +89,7 @@ def main(config):
     # Get API key and data_id from config
     api_key = config.get("api_key", "")
     data_id = config.get("data_id", "")
+    hl = config.get("language", "en")
 
     if not api_key:
         return render_error("No API key provided")
@@ -96,8 +97,8 @@ def main(config):
     if not data_id:
         return render_error("No data_id provided")
 
-    # Build API URL with provided API key and data_id
-    api_url = "https://serpapi.com/search.json?engine=google_maps_reviews&data_id=" + data_id + "&sort_by=newestFirst&api_key=" + api_key
+    # Build API URL with provided API key, data_id, and language preference
+    api_url = "https://serpapi.com/search.json?engine=google_maps_reviews&data_id=" + data_id + "&sort_by=newestFirst&hl=" + hl + "&api_key=" + api_key
 
     # Fetch data from API
     response = http.get(api_url, ttl_seconds = CACHE_TIMEOUT)
@@ -108,6 +109,10 @@ def main(config):
         return render_error(error_msg)
 
     data = response.json()
+
+    # Get place name from response
+    place_info = data.get("place_info", {})
+    place_name = place_info.get("title", "GOOGLE REVIEW")
 
     # Get reviews and pick a random one (up to first 5)
     reviews = data.get("reviews", [])
@@ -139,7 +144,7 @@ def main(config):
                 children = [
                     # Header
                     render.Text(
-                        content = "GOOGLE REVIEW",
+                        content = place_name,
                         color = COLOR_HEADER,
                         font = "CG-pixel-3x5-mono",
                     ),
@@ -205,6 +210,12 @@ def get_schema():
                 name = "Google Maps Place ID",
                 desc = "Google Maps data_id from SerpAPI search results",
                 icon = "mapPin",
+            ),
+            schema.Text(
+                id = "language",
+                name = "Language",
+                desc = "Language code for reviews (e.g. en, ja, fr). Defaults to en.",
+                icon = "language",
             ),
             schema.Dropdown(
                 id = "text_speed",
