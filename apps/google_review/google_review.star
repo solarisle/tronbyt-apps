@@ -14,6 +14,7 @@ load("images/star_empty.webp", STAR_EMPTY_ASSET = "file")
 
 CACHE_TIMEOUT = 43200  # 12 hours
 MAX_CHARS_PER_LINE = 12  # approximate chars that fit in 64px width
+MAX_CHARS_PER_LINE_WIDE = 10  # ~10 chars fit in 64px with 6x13 font (6px/char)
 DEFAULT_TEXT_SPEED = "100"
 
 # Load star icons
@@ -143,10 +144,11 @@ def main(config):
                 cross_align = "center",
                 children = [
                     # Header
-                    render.Text(
-                        content = place_name,
+                    render.WrappedText(
+                        content = word_wrap(place_name, MAX_CHARS_PER_LINE_WIDE),
                         color = COLOR_HEADER,
-                        font = "CG-pixel-3x5-mono",
+                        font = "6x13",
+                        width = 64,
                     ),
                     render.Text(content = ""),
 
@@ -159,18 +161,20 @@ def main(config):
                     render.Text(content = ""),
 
                     # Date
-                    render.Text(
-                        content = "Date: " + date,
+                    render.WrappedText(
+                        content = word_wrap("Date: " + date, MAX_CHARS_PER_LINE_WIDE),
                         color = COLOR_DATE,
-                        font = "CG-pixel-3x5-mono",
+                        font = "6x13",
+                        width = 64,
                     ),
                     render.Text(content = ""),
 
                     # User Name
-                    render.Text(
-                        content = "By: " + user_name,
+                    render.WrappedText(
+                        content = word_wrap("By: " + user_name, MAX_CHARS_PER_LINE_WIDE),
                         color = COLOR_USER,
-                        font = "CG-pixel-3x5-mono",
+                        font = "6x13",
+                        width = 64,
                     ),
                     render.Text(content = ""),
 
