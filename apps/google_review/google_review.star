@@ -5,8 +5,8 @@ Description: Shows the latest Google Maps review with rating, date, reviewer nam
 Author: Tronbyt
 """
 
-load("encoding/json.star", "json")
 load("http.star", "http")
+load("random.star", "random")
 load("render.star", "render")
 load("schema.star", "schema")
 load("images/star_filled.webp", STAR_FILLED_ASSET = "file")
@@ -103,15 +103,19 @@ def main(config):
     response = http.get(api_url, ttl_seconds = CACHE_TIMEOUT)
 
     if response.status_code != 200:
-        return render_error("API Error")
+        error_data = response.json()
+        error_msg = error_data.get("error", "API Error: " + str(response.status_code))
+        return render_error(error_msg)
 
     data = response.json()
 
-    # Get first review
-    if data.get("reviews") and len(data["reviews"]) > 0:
-        review = data["reviews"][0]
-    else:
+    # Get reviews and pick a random one (up to first 5)
+    reviews = data.get("reviews", [])
+    if not reviews:
         return render_error("No reviews found")
+
+    review_count = min(len(reviews), 5)
+    review = reviews[random.number(0, review_count - 1)]
 
     rating = review.get("rating")
     date = review.get("date", "Unknown")
@@ -193,13 +197,13 @@ def get_schema():
             schema.Text(
                 id = "api_key",
                 name = "SerpAPI Key",
-                desc = "Your SerpAPI key for Google Maps Reviews",
+                desc = "Your SerpAPI key (get from serpapi.com/manage-api-key)",
                 icon = "key",
             ),
             schema.Text(
                 id = "data_id",
                 name = "Google Maps Place ID",
-                desc = "The data_id for the Google Maps place (from SerpAPI search result)",
+                desc = "Google Maps data_id from SerpAPI search results",
                 icon = "mapPin",
             ),
             schema.Dropdown(
