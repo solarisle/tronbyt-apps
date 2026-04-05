@@ -10,19 +10,24 @@ load("http.star", "http")
 load("render.star", "render")
 load("schema.star", "schema")
 
-BASE_URL          = "https://www.mbenzin.cz/Ceny-benzinu-a-nafty/"
-DEFAULT_PLACE     = "Mohelno-535"
-DEFAULT_BRAND     = "EuroOil-silnice-392"
+BASE_URL           = "https://www.mbenzin.cz/Ceny-benzinu-a-nafty/"
+DEFAULT_PLACE      = "Mohelno-535"
+DEFAULT_BRAND      = "EuroOil-silnice-392"
 DEFAULT_STATION_ID = "16947"
-CACHE_TTL        = 1800      # 30 minutes
+CACHE_TTL          = 1800  # 30 minutes
 
+# Foreground colours
 COLOR_TITLE  = "#FFD700"  # gold  — station name
-COLOR_BENZIN = "#00BFFF"  # cyan  — benzín label
-COLOR_NAFTA  = "#FF6347"  # red   — nafta label
-COLOR_VALUE  = "#FFFFFF"  # white — price number
-COLOR_UNIT   = "#AAAAAA"  # grey  — "Kc" unit
-COLOR_STALE  = "#888888"  # grey  — unknown price
-COLOR_DIV    = "#333333"  # dark  — divider line
+COLOR_BENZIN = "#00BFFF"  # cyan  — benzín
+COLOR_NAFTA  = "#FF6347"  # tomato — nafta
+COLOR_VALUE  = "#FFFFFF"  # white — price
+COLOR_UNIT   = "#888888"  # grey  — "Kc"
+COLOR_STALE  = "#555555"  # dark grey — N/A
+
+# Background colours (dark tints of each accent)
+BG_HEADER = "#1A1000"  # dark amber
+BG_BENZIN = "#001822"  # dark cyan
+BG_NAFTA  = "#200800"  # dark red
 
 def fetch_prices(place, brand, station_id):
     """Fetch and parse benzín + nafta prices. Returns (benzin, nafta, station) or None."""
@@ -45,27 +50,37 @@ def fetch_prices(place, brand, station_id):
         benzin = "N/A"
     if nafta == "-" or nafta == "":
         nafta = "N/A"
-    if len(station) > 12:
-        station = station[:12]
 
     return benzin, nafta, station
 
-def price_row(label, value, label_color):
-    """One row: label on the left, price + unit on the right."""
+def price_row(label, value, label_color, accent_color, bg_color, row_height):
+    """A styled row with a coloured background, a left accent bar, and price on the right."""
     val_color = COLOR_VALUE if value != "N/A" else COLOR_STALE
     unit      = " Kc" if value != "N/A" else ""
 
-    return render.Row(
-        expanded    = True,
-        main_align  = "space_between",
-        cross_align = "center",
-        children    = [
-            render.Text(content = label, color = label_color, font = "tb-8"),
-            render.Row(
-                children = [
-                    render.Text(content = value, color = val_color, font = "tb-8"),
-                    render.Text(content = unit,  color = COLOR_UNIT, font = "tb-8"),
-                ],
+    return render.Stack(
+        children = [
+            # Coloured background
+            render.Box(width = 64, height = row_height, color = bg_color),
+            # Left accent bar drawn on top at (0,0)
+            render.Box(width = 3, height = row_height, color = accent_color),
+            # Content: label left, price right — padded clear of accent bar
+            render.Padding(
+                pad  = (5, 2, 3, 0),
+                child = render.Row(
+                    expanded    = True,
+                    main_align  = "space_between",
+                    cross_align = "center",
+                    children    = [
+                        render.Text(content = label, color = label_color, font = "tb-8"),
+                        render.Row(
+                            children = [
+                                render.Text(content = value, color = val_color, font = "tb-8"),
+                                render.Text(content = unit,  color = COLOR_UNIT, font = "tb-8"),
+                            ],
+                        ),
+                    ],
+                ),
             ),
         ],
     )
@@ -88,25 +103,32 @@ def main(config):
     benzin, nafta, station = result
 
     return render.Root(
-        child = render.Padding(
-            pad   = (1, 1, 1, 1),
-            child = render.Column(
-                expanded   = True,
-                main_align = "space_around",
-                children   = [
-                    render.Marquee(
-                        width = 62,
-                        child = render.Text(
-                            content = station,
-                            color   = COLOR_TITLE,
-                            font    = "tb-8",
+        child = render.Column(
+            children = [
+                # Header: dark amber bg + scrolling gold station name
+                render.Stack(
+                    children = [
+                        render.Box(width = 64, height = 9, color = BG_HEADER),
+                        render.Padding(
+                            pad  = (4, 1, 2, 0),
+                            child = render.Marquee(
+                                width = 58,
+                                child = render.Text(
+                                    content = station,
+                                    color   = COLOR_TITLE,
+                                    font    = "tb-8",
+                                ),
+                            ),
                         ),
-                    ),
-                    render.Box(width = 62, height = 1, color = COLOR_DIV),
-                    price_row("BA", benzin, COLOR_BENZIN),
-                    price_row("NF", nafta,  COLOR_NAFTA),
-                ],
-            ),
+                    ],
+                ),
+                # Gold divider line
+                render.Box(width = 64, height = 1, color = COLOR_TITLE),
+                # Benzín row
+                price_row("BA", benzin, COLOR_BENZIN, COLOR_BENZIN, BG_BENZIN, 11),
+                # Nafta row
+                price_row("NF", nafta,  COLOR_NAFTA,  COLOR_NAFTA,  BG_NAFTA,  11),
+            ],
         ),
     )
 
