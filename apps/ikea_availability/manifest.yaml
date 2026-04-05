@@ -1,0 +1,15 @@
+---
+id: ikea-availability
+name: IKEA Availability
+summary: Check IKEA item in-store availability
+desc: Shows whether an IKEA item is available for cash & carry pickup at your chosen store.
+author: Tronbyt
+fileName: ikea_availability.star
+packageName: ikea_availability
+recommendedInterval: 5
+category: shopping
+tags:
+  - ikea
+  - shopping
+  - availability
+  - stock
