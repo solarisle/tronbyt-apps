@@ -24,10 +24,22 @@ COLOR_VALUE  = "#FFFFFF"  # white — price
 COLOR_UNIT   = "#888888"  # grey  — "Kc"
 COLOR_STALE  = "#555555"  # dark grey — N/A
 
-# Background colours (dark tints of each accent)
-BG_HEADER = "#1A1000"  # dark amber
-BG_BENZIN = "#001822"  # dark cyan
-BG_NAFTA  = "#200800"  # dark red
+# Background colours
+BG_HEADER = "#1A1000"
+BG_BENZIN = "#001822"
+BG_NAFTA  = "#200800"
+
+# Pulse frames: (benzin_accent, nafta_accent) — bright → dim → bright cycle
+PULSE = [
+    ("#00BFFF", "#FF6347"),
+    ("#00A0D8", "#E05535"),
+    ("#007799", "#BB3322"),
+    ("#004466", "#771100"),
+    ("#007799", "#BB3322"),
+    ("#00A0D8", "#E05535"),
+]
+
+FRAME_DELAY = 120  # ms per frame
 
 def fetch_prices(place, brand, station_id):
     """Fetch and parse benzín + nafta prices. Returns (benzin, nafta, station) or None."""
@@ -54,17 +66,14 @@ def fetch_prices(place, brand, station_id):
     return benzin, nafta, station
 
 def price_row(label, value, label_color, accent_color, bg_color, row_height):
-    """A styled row with a coloured background, a left accent bar, and price on the right."""
+    """A styled row with coloured background, left accent bar, and price on the right."""
     val_color = COLOR_VALUE if value != "N/A" else COLOR_STALE
     unit      = " Kc" if value != "N/A" else ""
 
     return render.Stack(
         children = [
-            # Coloured background
             render.Box(width = 64, height = row_height, color = bg_color),
-            # Left accent bar drawn on top at (0,0)
-            render.Box(width = 3, height = row_height, color = accent_color),
-            # Content: label left, price right — padded clear of accent bar
+            render.Box(width = 3,  height = row_height, color = accent_color),
             render.Padding(
                 pad  = (5, 2, 3, 0),
                 child = render.Row(
@@ -85,6 +94,15 @@ def price_row(label, value, label_color, accent_color, bg_color, row_height):
         ],
     )
 
+def price_section(benzin, nafta, ba_accent, nf_accent):
+    """One animation frame: both price rows with given accent colours."""
+    return render.Column(
+        children = [
+            price_row("BA", benzin, COLOR_BENZIN, ba_accent, BG_BENZIN, 11),
+            price_row("NF", nafta,  COLOR_NAFTA,  nf_accent, BG_NAFTA,  11),
+        ],
+    )
+
 def main(config):
     place      = config.str("place",      DEFAULT_PLACE)
     brand      = config.str("brand",      DEFAULT_BRAND)
@@ -102,7 +120,13 @@ def main(config):
 
     benzin, nafta, station = result
 
+    # Build animated frames for the price rows
+    frames = []
+    for step in PULSE:
+        frames.append(price_section(benzin, nafta, step[0], step[1]))
+
     return render.Root(
+        delay = FRAME_DELAY,
         child = render.Column(
             children = [
                 # Header: dark amber bg + scrolling gold station name
@@ -124,10 +148,8 @@ def main(config):
                 ),
                 # Gold divider line
                 render.Box(width = 64, height = 1, color = COLOR_TITLE),
-                # Benzín row
-                price_row("BA", benzin, COLOR_BENZIN, COLOR_BENZIN, BG_BENZIN, 11),
-                # Nafta row
-                price_row("NF", nafta,  COLOR_NAFTA,  COLOR_NAFTA,  BG_NAFTA,  11),
+                # Animated price rows
+                render.Animation(children = frames),
             ],
         ),
     )
