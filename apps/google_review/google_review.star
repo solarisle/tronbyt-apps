@@ -150,7 +150,7 @@ def main(config):
                         font = "6x13",
                         width = 64,
                     ),
-                    render.Text(content = ""),
+                    render.Box(width = 64, height = 4),
 
                     # Rating with multiple stars
                     render.Row(
@@ -158,7 +158,7 @@ def main(config):
                         cross_align = "center",
                         children = build_star_row(rating_int if rating else 0),
                     ),
-                    render.Text(content = ""),
+                    render.Box(width = 64, height = 4),
 
                     # Date
                     render.WrappedText(
@@ -167,7 +167,7 @@ def main(config):
                         font = "6x13",
                         width = 64,
                     ),
-                    render.Text(content = ""),
+                    render.Box(width = 64, height = 4),
 
                     # User Name
                     render.WrappedText(
@@ -176,7 +176,7 @@ def main(config):
                         font = "6x13",
                         width = 64,
                     ),
-                    render.Text(content = ""),
+                    render.Box(width = 64, height = 4),
 
                     # Snippet
                     render.WrappedText(
