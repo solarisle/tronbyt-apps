@@ -1,0 +1,16 @@
+---
+id: benzin-cz
+name: Benzin CZ
+summary: Fuel prices from mbenzin.cz
+desc: Displays current benzín and nafta prices for a Czech petrol station from mbenzin.cz.
+author: Tronbyt
+fileName: benzin_cz.star
+packageName: benzin_cz
+recommendedInterval: 30
+category: transportation
+tags:
+  - fuel
+  - gas
+  - czech
+  - benzin
+  - nafta
