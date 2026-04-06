@@ -135,7 +135,7 @@ def main(config):
         url = "https://api.openweathermap.org/data/2.5/forecast?lat={}&lon={}&units={}&appid={}".format(lat, lng, units, api_v2_key)
 
         # Fetch weather data
-        rep = http.get(url, ttl_seconds = cache_sec)
+        rep = http.get(url, ttl_seconds = cache_sec, headers={"Host":"api.openweathermap.org"})
         if rep.status_code != 200:
             return error_display("Weather API Error")
 
