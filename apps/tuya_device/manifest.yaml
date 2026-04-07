@@ -1,0 +1,15 @@
+---
+id: tuya-device
+name: Tuya Device
+summary: Display Tuya device temperature
+desc: Shows temperature readings from Tuya-compatible smart devices. Requires Tuya Access ID and Secret.
+author: Solarisle
+fileName: tuya_device.star
+packageName: tuya_device
+recommendedInterval: 300
+supports2x: false
+category: home
+tags:
+  - home-automation
+  - temperature
+  - iot
