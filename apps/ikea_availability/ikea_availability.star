@@ -12,10 +12,11 @@ load("schema.star", "schema")
 CIA_BASE = "https://api.salesitem.ingka.com/availabilities"
 CACHE_TTL = 3600  # 1 hour
 
-COLOR_LABEL = "#FFDA1A"  # IKEA yellow
-COLOR_OK = "#00A651"  # green — in stock
-COLOR_OOS = "#E00751"  # red   — out of stock
-COLOR_QTY = "#FFFFFF"  # white — quantity number
+COLOR_BG    = "#0058A3"  # IKEA blue — background
+COLOR_LABEL = "#FFDA1A"  # IKEA yellow — item name
+COLOR_OK    = "#FFFFFF"  # white — "In Stock:" label
+COLOR_OOS   = "#FFDA1A"  # IKEA yellow — out of stock
+COLOR_QTY   = "#FFDA1A"  # IKEA yellow — quantity number
 
 def main(config):
     client_id = config.get("client_id", "")
@@ -67,33 +68,39 @@ def main(config):
         )
 
     return render.Root(
-        child = render.Column(
-            children = [
-                render.Marquee(
-                    width = 64,
-                    scroll_direction = "horizontal",
-                    child = render.Text(
-                        content = item_label,
-                        color = COLOR_LABEL,
-                        font = "6x13",
+        child = render.Box(
+            color = COLOR_BG,
+            child = render.Column(
+                children = [
+                    render.Marquee(
+                        width = 64,
+                        scroll_direction = "horizontal",
+                        child = render.Text(
+                            content = item_label,
+                            color = COLOR_LABEL,
+                            font = "6x13",
+                        ),
                     ),
-                ),
-                render.Box(width = 64, height = 4),
-                render.Marquee(
-                    width = 64,
-                    scroll_direction = "horizontal",
-                    child = status_child,
-                ),
-            ],
+                    render.Box(width = 64, height = 4),
+                    render.Marquee(
+                        width = 64,
+                        scroll_direction = "horizontal",
+                        child = status_child,
+                    ),
+                ],
+            ),
         ),
     )
 
 def render_error(msg):
     return render.Root(
-        child = render.WrappedText(
-            content = "ERROR: " + msg,
-            color = "#FF0000",
-            width = 64,
+        child = render.Box(
+            color = COLOR_BG,
+            child = render.WrappedText(
+                content = "ERROR: " + msg,
+                color = "#FFDA1A",
+                width = 64,
+            ),
         ),
     )
 
