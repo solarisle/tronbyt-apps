@@ -9,17 +9,18 @@ load("http.star", "http")
 load("render.star", "render")
 load("schema.star", "schema")
 
-CIA_BASE  = "https://api.salesitem.ingka.com/availabilities"
-CACHE_TTL = 3600   # 1 hour
+CIA_BASE = "https://api.salesitem.ingka.com/availabilities"
+CACHE_TTL = 3600  # 1 hour
 
 COLOR_LABEL = "#FFDA1A"  # IKEA yellow
-COLOR_OK    = "#00A651"  # green — in stock
-COLOR_OOS   = "#E00751"  # red   — out of stock
+COLOR_OK = "#00A651"  # green — in stock
+COLOR_OOS = "#E00751"  # red   — out of stock
+COLOR_QTY = "#FFFFFF"  # white — quantity number
 
 def main(config):
-    client_id  = config.get("client_id", "")
-    item_no    = config.get("item_no", "")
-    store_id   = config.get("store_id", "")
+    client_id = config.get("client_id", "")
+    item_no = config.get("item_no", "")
+    store_id = config.get("store_id", "")
     item_label = config.get("item_label", "IKEA Item")
 
     if not client_id:
@@ -33,7 +34,7 @@ def main(config):
 
     res = http.get(
         CIA_BASE + "/sto/" + store_id,
-        params  = {"itemNos": item_no},
+        params = {"itemNos": item_no},
         headers = {"x-client-id": client_id, "Accept": "application/json"},
         ttl_seconds = CACHE_TTL,
     )
@@ -41,37 +42,47 @@ def main(config):
     if res.status_code != 200:
         return render_error("API error " + str(res.status_code))
 
-    data   = res.json()
+    data = res.json()
     avails = data.get("availabilities", [])
 
     if not avails:
         return render_error("No data")
 
-    available    = avails[0].get("availableForCashCarry", False)
-    status_text  = "IN STOCK" if available else "OUT OF STOCK"
-    status_color = COLOR_OK   if available else COLOR_OOS
+    available = avails[0].get("availableForCashCarry", False)
+    cash_carry = avails[0].get("buyingOption", {}).get("cashCarry", {})
+    quantity = int(cash_carry.get("availability", {}).get("quantity", 0))
+
+    if available:
+        status_child = render.Row(
+            children = [
+                render.Text(content = "In Stock: ", color = COLOR_OK, font = "6x13"),
+                render.Text(content = str(quantity), color = COLOR_QTY, font = "6x13"),
+            ],
+        )
+    else:
+        status_child = render.Text(
+            content = "OUT OF STOCK",
+            color = COLOR_OOS,
+            font = "6x13",
+        )
 
     return render.Root(
         child = render.Column(
             children = [
                 render.Marquee(
-                    width            = 64,
+                    width = 64,
                     scroll_direction = "horizontal",
                     child = render.Text(
                         content = item_label,
-                        color   = COLOR_LABEL,
-                        font    = "6x13",
+                        color = COLOR_LABEL,
+                        font = "6x13",
                     ),
                 ),
                 render.Box(width = 64, height = 4),
                 render.Marquee(
-                    width            = 64,
+                    width = 64,
                     scroll_direction = "horizontal",
-                    child = render.Text(
-                        content = status_text,
-                        color   = status_color,
-                        font    = "6x13",
-                    ),
+                    child = status_child,
                 ),
             ],
         ),
@@ -81,8 +92,8 @@ def render_error(msg):
     return render.Root(
         child = render.WrappedText(
             content = "ERROR: " + msg,
-            color   = "#FF0000",
-            width   = 64,
+            color = "#FF0000",
+            width = 64,
         ),
     )
 
@@ -91,25 +102,25 @@ def get_schema():
         version = "1",
         fields = [
             schema.Text(
-                id   = "client_id",
+                id = "client_id",
                 name = "IKEA Client ID",
                 desc = "Value of ciaApiClientKey found in the product page source (x-client-id header).",
                 icon = "key",
             ),
             schema.Text(
-                id   = "item_no",
+                id = "item_no",
                 name = "Item Number",
                 desc = "Item number from the IKEA product page URL (e.g. 40310208).",
                 icon = "barcode",
             ),
             schema.Text(
-                id   = "store_id",
+                id = "store_id",
                 name = "Store ID",
                 desc = "Numeric store ID from the product page source (storeState.shared.user.storeId).",
                 icon = "store",
             ),
             schema.Text(
-                id   = "item_label",
+                id = "item_label",
                 name = "Item Label",
                 desc = "Name to display on screen (e.g. IVAR bottle rack).",
                 icon = "tag",
