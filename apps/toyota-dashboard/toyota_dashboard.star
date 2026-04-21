@@ -273,18 +273,18 @@ def _hex2(n):
 def _make_accent_pulse(c1, c2, n = 8):
     """Cosine-eased colour pulse between c1 and c2 as (R, G, B) tuples.
 
-    Returns a render.Animation of n frames, each a 2×8 Box.
+    Returns a render.Animation of n frames, each a 6px Circle.
     Must be placed as a sibling of any Marquee (never inside one) to avoid
     resetting its scroll position.
     """
-    boxes = []
+    circles = []
     for i in range(n):
         t = (1 - math.cos(2 * math.pi * i / n)) / 2
         r = int(c1[0] + (c2[0] - c1[0]) * t)
         g = int(c1[1] + (c2[1] - c1[1]) * t)
         b = int(c1[2] + (c2[2] - c1[2]) * t)
-        boxes.append(render.Box(width = 2, height = 8, color = "#" + _hex2(r) + _hex2(g) + _hex2(b)))
-    return render.Animation(children = boxes)
+        circles.append(render.Circle(diameter = 6, color = "#" + _hex2(r) + _hex2(g) + _hex2(b)))
+    return render.Animation(children = circles)
 
 def _fuel_segments(pct):
     """Render 8 segmented fuel blocks (47px wide).
@@ -305,11 +305,11 @@ def _fuel_segments(pct):
     children = []
     for i in range(8):
         seg_color = fill_color if i < num_filled else DIM_SEP_COLOR
-        children.append(render.Box(width = 5, height = 8, color = seg_color))
+        children.append(render.Box(width = 4, height = 8, color = seg_color))
         if i < 7:
             children.append(render.Box(width = 1, height = 8, color = BG_COLOR))
     return render.Row(children = children)
-    # Width: 8×5 + 7×1 = 47px
+    # Width: 8×4 + 7×1 = 39px
 
 def _hud_row(label, value_text, value_color = TEXT_COLOR):
     """Single HUD data row: steel-blue 3-char label + value, 8px tall."""
@@ -439,8 +439,8 @@ def main(config):
         )
 
     # ── Zone A — Header (8px) ─────────────────────────────────────────────────
-    # Layout: [2px accent pulse] [1px] [50px label marquee] [1px] [3px lock dot] [7px pad]
-    # Total:  2 + 1 + 50 + 1 + 3 + 7 = 64 ✓
+    # Layout: [6px accent circle] [1px] [50px label marquee] [1px] [6px lock dot circle]
+    # Total:  6 + 1 + 50 + 1 + 6 = 64 ✓
     #
     # accent_animation is a SIBLING of the Marquee inside the Row — this is the
     # required pattern to prevent the Animation from resetting scroll position.
@@ -465,8 +465,7 @@ def main(config):
                     ),
                 ),
                 render.Box(width = 1, height = 8),
-                render.Box(width = 3, height = 6, color = lock_dot_color),
-                render.Box(width = 7, height = 8),
+                render.Circle(diameter = 6, color = lock_dot_color),
             ],
         ),
     )
@@ -475,8 +474,8 @@ def main(config):
     zone_b1 = render.Box(height = 1, color = ACCENT_COLOR)
 
     # ── Zone B2 — Fuel segments (10px) ────────────────────────────────────────
-    # Layout: [1px] [15px label box] [1px] [47px segments]
-    # Total:  1 + 15 + 1 + 47 = 64 ✓
+    # Layout: [1px] [20px label box] [1px] [39px segments] [3px pad]
+    # Total:  1 + 20 + 1 + 39 + 3 = 64 ✓
     zone_b2 = render.Box(
         height = 10,
         child = render.Column(
@@ -487,16 +486,17 @@ def main(config):
                     children = [
                         render.Box(width = 1, height = 8),
                         render.Box(
-                            width = 15,
+                            width = 20,
                             height = 8,
                             child = render.Text(
                                 content = fuel_label,
-                                font = "tom-thumb",
+                                font = "tb-8",
                                 color = LABEL_COLOR,
                             ),
                         ),
                         render.Box(width = 1, height = 8),
                         _fuel_segments(fuel_pct_safe),
+                        render.Box(width = 3, height = 8),
                     ],
                 ),
                 render.Box(height = 1),
