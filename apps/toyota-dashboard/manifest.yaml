@@ -1,0 +1,16 @@
+---
+id: toyota-dashboard
+name: Toyota Dashboard
+summary: Toyota vehicle status display
+desc: Shows fuel level, driving range, odometer and door lock status using Toyota Connected Services (EU). Requires a refresh token from the Toyota app OAuth2 login.
+author: ponbee
+fileName: toyota_dashboard.star
+packageName: toyota_dashboard
+recommendedInterval: 300
+supports2x: false
+category: transportation
+tags:
+  - car
+  - toyota
+  - vehicle
+  - fuel
