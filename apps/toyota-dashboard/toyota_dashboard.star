@@ -38,14 +38,16 @@ REFRESH_TOKEN_TTL = 7776000
 VEHICLE_STATUS_TTL = 300
 
 # ── Display colours ───────────────────────────────────────────────────────────
-BG_COLOR = "#0A0A0A"
-ACCENT_COLOR = "#CC0000"  # Toyota red
-TEXT_COLOR = "#FFFFFF"
-DIM_COLOR = "#888888"
-FUEL_FILL_COLOR = "#CC0000"
-FUEL_EMPTY_COLOR = "#2A2A2A"
-LOCK_OK_COLOR = "#00CC44"
-LOCK_WARN_COLOR = "#FF4444"
+BG_COLOR = "#050510"  # Deep navy
+ACCENT_COLOR = "#00C8FF"  # HUD cyan
+DIM_SEP_COLOR = "#0A2030"  # Dark separator / empty segment
+TEXT_COLOR = "#C8E0FF"  # Cool blue-white for values
+LABEL_COLOR = "#4A7A9B"  # Steel blue for labels
+FUEL_HIGH_COLOR = "#00FF88"  # Green  (>= 5/8 segments)
+FUEL_MID_COLOR = "#FFD700"  # Gold   (3–4/8 segments)
+FUEL_LOW_COLOR = "#FF4020"  # Red-orange (< 3/8 segments)
+LOCK_OK_COLOR = "#00FF88"
+LOCK_WARN_COLOR = "#FF3030"
 
 # ── Door sections we check for lock status ────────────────────────────────────
 DOOR_SECTIONS = [
@@ -184,7 +186,7 @@ def get_vehicle_status(access_token, guid, vin):
     cached = cache.get(vs_key)
     if cached:
         return json.decode(cached)
-    
+
     print("No cache from vs")
 
     # x-client-ref = HMAC-SHA256(CLIENT_VERSION, guid)  — as per Toyota app
@@ -229,7 +231,7 @@ def parse_telemetry(payload):
 
     Returns (fuel_pct, range_km, odo_km) — each may be None if absent.
     """
-    print (payload)
+    print(payload)
     tel = payload.get("telemetry", {})
     fuel_pct = tel.get("fugage", {}).get("value", None)
     range_km = tel.get("rage", {}).get("value", None)
@@ -271,9 +273,9 @@ def _hex2(n):
 def _make_accent_pulse(c1, c2, n = 8):
     """Cosine-eased colour pulse between c1 and c2 as (R, G, B) tuples.
 
-    Returns a render.Animation of n frames, each a 3×15 Box.
-    Placed as a sibling of Marquee widgets (never inside them) to avoid
-    resetting their scroll position.
+    Returns a render.Animation of n frames, each a 2×8 Box.
+    Must be placed as a sibling of any Marquee (never inside one) to avoid
+    resetting its scroll position.
     """
     boxes = []
     for i in range(n):
@@ -281,39 +283,47 @@ def _make_accent_pulse(c1, c2, n = 8):
         r = int(c1[0] + (c2[0] - c1[0]) * t)
         g = int(c1[1] + (c2[1] - c1[1]) * t)
         b = int(c1[2] + (c2[2] - c1[2]) * t)
-        boxes.append(render.Box(width = 3, height = 15, color = "#" + _hex2(r) + _hex2(g) + _hex2(b)))
+        boxes.append(render.Box(width = 2, height = 8, color = "#" + _hex2(r) + _hex2(g) + _hex2(b)))
     return render.Animation(children = boxes)
 
-def _fuel_bar(pct, total_width = 43, height = 5):
-    """Render a visual fuel bar as a Row of Boxes.
+def _fuel_segments(pct):
+    """Render 8 segmented fuel blocks (47px wide).
 
-    Args:
-        pct: fuel percentage 0-100 (float or int).
-        total_width: total pixel width of the bar.
-        height: pixel height of the bar.
+    Segment colour depends on fill level:
+      >= 5/8  → green (high)
+      >= 3/8  → gold  (mid)
+      <  3/8  → red   (low)
+    Empty segments use the dark separator colour.
     """
-    filled_w = int(pct * total_width / 100.0)
-    empty_w = total_width - filled_w
+    num_filled = int(pct * 8 / 100)
+    if num_filled >= 5:
+        fill_color = FUEL_HIGH_COLOR
+    elif num_filled >= 3:
+        fill_color = FUEL_MID_COLOR
+    else:
+        fill_color = FUEL_LOW_COLOR
     children = []
-    if filled_w > 0:
-        children.append(render.Box(width = filled_w, height = height, color = FUEL_FILL_COLOR))
-    if empty_w > 0:
-        children.append(render.Box(width = empty_w, height = height, color = FUEL_EMPTY_COLOR))
+    for i in range(8):
+        seg_color = fill_color if i < num_filled else DIM_SEP_COLOR
+        children.append(render.Box(width = 5, height = 8, color = seg_color))
+        if i < 7:
+            children.append(render.Box(width = 1, height = 8, color = BG_COLOR))
     return render.Row(children = children)
+    # Width: 8×5 + 7×1 = 47px
 
-def _data_row(label, value, value_color = TEXT_COLOR):
-    """Single data row: dimmed label + value text, left-aligned."""
-    print("Lable") 
-    print(label)
-    print("Value")
-    print(value)
-    return render.Row(
-        cross_align = "center",
-        children=[
-                render.Text(content = label + " ", font = "tb-8", color = DIM_COLOR),
-                render.Text(content = value , font = "tb-8", color = value_color),
-        
-        ],
+def _hud_row(label, value_text, value_color = TEXT_COLOR):
+    """Single HUD data row: steel-blue 3-char label + value, 8px tall."""
+    return render.Box(
+        height = 8,
+        child = render.Row(
+            cross_align = "center",
+            children = [
+                render.Box(width = 2, height = 8),
+                render.Text(content = label, font = "tom-thumb", color = LABEL_COLOR),
+                render.Box(width = 3, height = 8),
+                render.Text(content = value_text, font = "tb-8", color = value_color),
+            ],
+        ),
     )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -328,19 +338,19 @@ def _error_screen(title, msg):
                 render.Column(
                     children = [
                         render.Box(
-                            height = 13,
+                            height = 9,
                             child = render.Row(
                                 cross_align = "center",
                                 children = [
-                                    render.Box(width = 3, height = 13, color = ACCENT_COLOR),
-                                    render.Box(width = 2, height = 13),
-                                    render.Text(content = title, font = "tb-8", color = TEXT_COLOR),
+                                    render.Box(width = 2, height = 9, color = ACCENT_COLOR),
+                                    render.Box(width = 2, height = 9),
+                                    render.Text(content = title, font = "tb-8", color = ACCENT_COLOR),
                                 ],
                             ),
                         ),
                         render.Box(height = 1, color = ACCENT_COLOR),
                         render.Box(
-                            height = 18,
+                            height = 22,
                             child = render.Row(
                                 expanded = True,
                                 main_align = "center",
@@ -350,7 +360,7 @@ def _error_screen(title, msg):
                                         content = msg,
                                         font = "tb-8",
                                         color = "#FFA500",
-                                        width = 58,
+                                        width = 60,
                                     ),
                                 ],
                             ),
@@ -369,12 +379,19 @@ def main(config):
     refresh_token = config.str("refresh_token", "")
     vin = config.str("vin", "")
     label = config.str("label", "")
+    display_refresh_token = config.bool("display_refresh_token")
 
     if not refresh_token or not vin:
         return _error_screen("Toyota", "Set token & VIN")
 
     # Header label: user-supplied name or first 8 chars of VIN
     display_label = label if label else vin[:8]
+
+    # ── Debug: print cached refresh token ────────────────────────────────────
+    if display_refresh_token:
+        prefix = _cache_prefix(refresh_token)
+        cached_rt = cache.get("toyota_rt_" + prefix)
+        print("DEBUG cached refresh_token: " + (cached_rt if cached_rt else "(none)"))
 
     # ── Auth ─────────────────────────────────────────────────────────────────
     access_token = get_access_token(refresh_token)
@@ -383,6 +400,7 @@ def main(config):
 
     print("Access_Token:")
     print(access_token)
+
     # guid = "sub" claim from the access_token JWT payload
     at_payload = decode_jwt_payload(access_token)
     guid = at_payload.get("sub", "")
@@ -397,101 +415,139 @@ def main(config):
     (fuel_pct, range_km, odo_km) = parse_telemetry(payload)
     (all_locked, open_parts) = parse_lock_status(payload)
 
-    # ── Build rows ───────────────────────────────────────────────────────────
+    # ── Build data values ─────────────────────────────────────────────────────
 
-    # Fuel row: percentage label (left, 21 px wide box) + visual bar (43 px)
-    # Total: 21 + 43 = 64 px  ✓
     fuel_pct_safe = fuel_pct if fuel_pct != None else 0
     fuel_label = "%d%%" % int(fuel_pct_safe) if fuel_pct != None else "?%"
-    fuel_row = render.Row(
-        cross_align = "center",
-        children = [
-            render.Text(
-                    content = fuel_label,
-                    font = "tb-8",
-                    color = TEXT_COLOR,
-                ),
-            
-            _fuel_bar(fuel_pct_safe, total_width = 43, height = 8),
-        ],
-    )
 
-    # Range row
     range_str = "%d km" % int(range_km) if range_km != None else "-- km"
-    range_row = _data_row("Rng ", range_str)
-
-    # Odometer row
     odo_str = "%d km" % int(odo_km) if odo_km != None else "-- km"
-    odo_row = _data_row("ODO ", odo_str)
 
-    # Lock row: green "Locked" or red list of open parts (horizontal Marquee
-    # only on the text — not nested inside the vertical Marquee)
+    # Lock status
     if all_locked:
-        lock_color = LOCK_OK_COLOR
-        lock_text = "Locked"
+        lock_dot_color = LOCK_OK_COLOR
+        lock_widget = render.Text(content = "SAFE", font = "tb-8", color = LOCK_OK_COLOR)
     else:
-        lock_color = LOCK_WARN_COLOR
-        lock_text = "OPEN: " + ", ".join(open_parts)
-    lock_row = _data_row("Lock", lock_text, value_color = lock_color)
+        lock_dot_color = LOCK_WARN_COLOR
+        lock_widget = render.Marquee(
+            width = 50,
+            child = render.Text(
+                content = "! " + "  ".join(open_parts),
+                font = "tb-8",
+                color = LOCK_WARN_COLOR,
+            ),
+        )
 
-    # Vertical Marquee scrolls 4 data rows (38 px total) through 18 px window.
-    # At delay=80 ms → 1 px / tick → full scroll ~3 s, smooth reading pace.
-    data_marquee = render.Marquee(
-        height = 18,
-        scroll_direction = "vertical",
-        align = "center",
-        child = render.Column(
+    # ── Zone A — Header (8px) ─────────────────────────────────────────────────
+    # Layout: [2px accent pulse] [1px] [50px label marquee] [1px] [3px lock dot] [7px pad]
+    # Total:  2 + 1 + 50 + 1 + 3 + 7 = 64 ✓
+    #
+    # accent_animation is a SIBLING of the Marquee inside the Row — this is the
+    # required pattern to prevent the Animation from resetting scroll position.
+    if all_locked:
+        accent = _make_accent_pulse((0, 200, 255), (0, 30, 50))
+    else:
+        accent = _make_accent_pulse((255, 80, 0), (60, 10, 0))
+
+    zone_a = render.Box(
+        height = 8,
+        child = render.Row(
             cross_align = "center",
             children = [
-                fuel_row,
-                render.Box(height = 2),
-                range_row,
-                render.Box(height = 2),
-                odo_row,
-                render.Box(height = 2),
-                lock_row,
+                accent,
+                render.Box(width = 1, height = 8),
+                render.Marquee(
+                    width = 50,
+                    child = render.Text(
+                        content = display_label,
+                        font = "tb-8",
+                        color = ACCENT_COLOR,
+                    ),
+                ),
+                render.Box(width = 1, height = 8),
+                render.Box(width = 3, height = 6, color = lock_dot_color),
+                render.Box(width = 7, height = 8),
             ],
         ),
     )
 
-    # Accent bar: normal pulse red↔dark; warning pulse red↔orange if unlocked
-    if all_locked:
-        accent = _make_accent_pulse((204, 0, 0), (80, 0, 0))
-    else:
-        accent = _make_accent_pulse((255, 80, 0), (180, 20, 0))
+    # ── Zone B1 — Cyan divider (1px) ──────────────────────────────────────────
+    zone_b1 = render.Box(height = 1, color = ACCENT_COLOR)
+
+    # ── Zone B2 — Fuel segments (10px) ────────────────────────────────────────
+    # Layout: [1px] [15px label box] [1px] [47px segments]
+    # Total:  1 + 15 + 1 + 47 = 64 ✓
+    zone_b2 = render.Box(
+        height = 10,
+        child = render.Column(
+            children = [
+                render.Box(height = 1),
+                render.Row(
+                    cross_align = "center",
+                    children = [
+                        render.Box(width = 1, height = 8),
+                        render.Box(
+                            width = 15,
+                            height = 8,
+                            child = render.Text(
+                                content = fuel_label,
+                                font = "tom-thumb",
+                                color = LABEL_COLOR,
+                            ),
+                        ),
+                        render.Box(width = 1, height = 8),
+                        _fuel_segments(fuel_pct_safe),
+                    ],
+                ),
+                render.Box(height = 1),
+            ],
+        ),
+    )
+
+    # ── Zone B3 — Dark separator (1px) ────────────────────────────────────────
+    zone_b3 = render.Box(height = 1, color = DIM_SEP_COLOR)
+
+    # ── Zone D — Scrolling data (12px window) ────────────────────────────────
+    # Inner content: 3 rows × 8px + 2 spacers × 2px = 28px → scrolls in 12px.
+    zone_d = render.Marquee(
+        height = 12,
+        scroll_direction = "vertical",
+        align = "center",
+        child = render.Column(
+            cross_align = "start",
+            children = [
+                _hud_row("RNG", range_str),
+                render.Box(height = 2),
+                _hud_row("ODO", odo_str),
+                render.Box(height = 2),
+                render.Box(
+                    height = 8,
+                    child = render.Row(
+                        cross_align = "center",
+                        children = [
+                            render.Box(width = 2, height = 8),
+                            render.Text(content = "LCK", font = "tom-thumb", color = LABEL_COLOR),
+                            render.Box(width = 3, height = 8),
+                            lock_widget,
+                        ],
+                    ),
+                ),
+            ],
+        ),
+    )
 
     return render.Root(
-        delay = 80,  # ms — drives both pulse animation and scroll speed
+        delay = 80,
         child = render.Stack(
             children = [
                 render.Box(color = BG_COLOR),
                 render.Column(
                     children = [
-                        # ── Header (13 px) ────────────────────────────────
-                        render.Box(
-                            height = 13,
-                            child = render.Row(
-                                cross_align = "center",
-                                children = [
-                                    # Pulsing accent bar (Animation is a
-                                    # SIBLING of Marquee, not inside it)
-                                    accent,
-                                    render.Box(width = 2, height = 13),
-                                    render.Marquee(
-                                        width = 59,
-                                        child = render.Text(
-                                            content = display_label,
-                                            font = "6x13",
-                                            color = TEXT_COLOR,
-                                        ),
-                                    ),
-                                ],
-                            ),
-                        ),
-                        # ── Divider (1 px) ────────────────────────────────
-                        render.Box(height = 1, color = ACCENT_COLOR),
-                        # ── Scrolling data (18 px) ────────────────────────
-                        data_marquee,
+                        zone_a,  # 8px
+                        zone_b1,  # 1px
+                        zone_b2,  # 10px
+                        zone_b3,  # 1px
+                        zone_d,  # 12px
                     ],
                 ),
             ],
@@ -525,6 +581,13 @@ def get_schema():
                 desc = "Name shown in the header (e.g. 'Yaris Cross'). Defaults to first 8 chars of VIN.",
                 icon = "tag",
                 default = "",
+            ),
+            schema.Toggle(
+                id = "display_refresh_token",
+                name = "Debug: Print Refresh Token",
+                desc = "When enabled, prints the cached refresh token to the log for debugging token rotation.",
+                icon = "bug",
+                default = False,
             ),
         ],
     )
