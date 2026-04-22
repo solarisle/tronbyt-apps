@@ -38,11 +38,11 @@ REFRESH_TOKEN_TTL = 7776000
 VEHICLE_STATUS_TTL = 300
 
 # ── Display colours ───────────────────────────────────────────────────────────
-BG_COLOR = "#050510"  # Deep navy
-ACCENT_COLOR = "#00C8FF"  # HUD cyan
-DIM_SEP_COLOR = "#0A2030"  # Dark separator / empty segment
-TEXT_COLOR = "#C8E0FF"  # Cool blue-white for values
-LABEL_COLOR = "#4A7A9B"  # Steel blue for labels
+BG_COLOR = "#0A1020"  # Dark navy (slightly brighter)
+ACCENT_COLOR = "#00E5FF"  # Bright cyan
+DIM_SEP_COLOR = "#1A3A55"  # Visible separator / empty segment
+TEXT_COLOR = "#FFFFFF"  # Pure white for values
+LABEL_COLOR = "#7AAFD4"  # Light steel blue for labels
 FUEL_HIGH_COLOR = "#00FF88"  # Green  (>= 5/8 segments)
 FUEL_MID_COLOR = "#FFD700"  # Gold   (3–4/8 segments)
 FUEL_LOW_COLOR = "#FF4020"  # Red-orange (< 3/8 segments)
@@ -440,12 +440,12 @@ def main(config):
 
     # Lock status
     if all_locked:
-        lock_widget = render.Text(content = "SAFE", font = "tb-8", color = LOCK_OK_COLOR)
+        lock_widget = render.Text(content = "Zamčeno", font = "tb-8", color = LOCK_OK_COLOR)
     else:
         lock_widget = render.Marquee(
             width = 50,
             child = render.Text(
-                content = "! " + "  ".join(open_parts),
+                content = "Otevřeno: " + "  ".join(open_parts),
                 font = "tb-8",
                 color = LOCK_WARN_COLOR,
             ),
@@ -531,9 +531,9 @@ def main(config):
         child = render.Column(
             cross_align = "start",
             children = [
-                _hud_row("RNG", range_str),
+                _hud_row("Dojezd", range_str),
                 render.Box(height = 2),
-                _hud_row("ODO", odo_str),
+                _hud_row("Odometr", odo_str),
                 render.Box(height = 2),
                 render.Box(
                     height = 8,
@@ -541,7 +541,7 @@ def main(config):
                         cross_align = "center",
                         children = [
                             render.Box(width = 2, height = 8),
-                            render.Text(content = "LCK", font = "tom-thumb", color = LABEL_COLOR),
+                            render.Text(content = "Zámek", font = "tom-thumb", color = LABEL_COLOR),
                             render.Box(width = 3, height = 8),
                             lock_widget,
                         ],
