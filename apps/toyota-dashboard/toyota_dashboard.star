@@ -270,12 +270,12 @@ def _hex2(n):
     s = "%X" % n
     return s if len(s) >= 2 else "0" + s
 
-def _make_accent_pulse(c1, c2, n = 8):
-    """Cosine-eased colour pulse between c1 and c2 as (R, G, B) tuples.
+def _make_accent_breath(c1, c2, n = 20):
+    """Slow cosine-eased breathing between c1 and c2 as (R, G, B) tuples.
 
+    n=20 frames × 80ms delay = 1600ms cycle — noticeably slower than a fast pulse.
     Returns a render.Animation of n frames, each a 6px Circle.
-    Must be placed as a sibling of any Marquee (never inside one) to avoid
-    resetting its scroll position.
+    Must be placed as a sibling of any Marquee (never inside one).
     """
     circles = []
     for i in range(n):
@@ -285,6 +285,21 @@ def _make_accent_pulse(c1, c2, n = 8):
         b = int(c1[2] + (c2[2] - c1[2]) * t)
         circles.append(render.Circle(diameter = 6, color = "#" + _hex2(r) + _hex2(g) + _hex2(b)))
     return render.Animation(children = circles)
+
+def _make_accent_flash(color_on, n_on = 4, n_off = 5):
+    """Hard on/off flash animation.
+
+    n_on frames bright then n_off frames dark → clear warning strobe.
+    At 80ms delay: 4+5=9 frames = 720ms cycle, on for 320ms, off for 400ms.
+    Returns a render.Animation of (n_on + n_off) frames, each a 6px Circle.
+    Must be placed as a sibling of any Marquee (never inside one).
+    """
+    frames = []
+    for _ in range(n_on):
+        frames.append(render.Circle(diameter = 6, color = color_on))
+    for _ in range(n_off):
+        frames.append(render.Circle(diameter = 6, color = BG_COLOR))
+    return render.Animation(children = frames)
 
 def _fuel_segments(pct):
     """Render 8 segmented fuel blocks (47px wide).
@@ -425,10 +440,8 @@ def main(config):
 
     # Lock status
     if all_locked:
-        lock_dot_color = LOCK_OK_COLOR
         lock_widget = render.Text(content = "SAFE", font = "tb-8", color = LOCK_OK_COLOR)
     else:
-        lock_dot_color = LOCK_WARN_COLOR
         lock_widget = render.Marquee(
             width = 50,
             child = render.Text(
@@ -439,15 +452,19 @@ def main(config):
         )
 
     # ── Zone A — Header (8px) ─────────────────────────────────────────────────
-    # Layout: [6px accent circle] [1px] [50px label marquee] [1px] [6px lock dot circle]
-    # Total:  6 + 1 + 50 + 1 + 6 = 64 ✓
+    # Layout: [6px accent circle anim] [1px] [57px label marquee]
+    # Total:  6 + 1 + 57 = 64 ✓
     #
-    # accent_animation is a SIBLING of the Marquee inside the Row — this is the
-    # required pattern to prevent the Animation from resetting scroll position.
+    # Left circle = lock indicator:
+    #   locked   → slow cyan breathing (_make_accent_breath)
+    #   unlocked → hard red flash     (_make_accent_flash)
+    #
+    # accent_animation is a SIBLING of the Marquee inside the Row — required
+    # pattern to prevent Animation from resetting Marquee scroll position.
     if all_locked:
-        accent = _make_accent_pulse((0, 200, 255), (0, 30, 50))
+        accent = _make_accent_breath((0, 200, 255), (0, 30, 50))
     else:
-        accent = _make_accent_pulse((255, 80, 0), (60, 10, 0))
+        accent = _make_accent_flash(LOCK_WARN_COLOR)
 
     zone_a = render.Box(
         height = 8,
@@ -457,15 +474,13 @@ def main(config):
                 accent,
                 render.Box(width = 1, height = 8),
                 render.Marquee(
-                    width = 50,
+                    width = 57,
                     child = render.Text(
                         content = display_label,
                         font = "tb-8",
                         color = ACCENT_COLOR,
                     ),
                 ),
-                render.Box(width = 1, height = 8),
-                render.Circle(diameter = 6, color = lock_dot_color),
             ],
         ),
     )
