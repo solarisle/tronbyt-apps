@@ -94,6 +94,8 @@ def get_device_info(device_id, access_token, client_id, secret, endpoint):
         return json.decode(cached)
 
     resp = make_signed_request("GET", url_path, client_id, secret, access_token = access_token, endpoint = endpoint)
+    #print(resp.status_code)
+    #print(resp.json())
     if resp.status_code != 200:
         return None
 
