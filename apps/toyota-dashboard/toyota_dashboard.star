@@ -18,7 +18,8 @@ load("time.star", "time")
 
 # ── Toyota EU API endpoints ───────────────────────────────────────────────────
 TOKEN_URL = "https://b2c-login.toyota-europe.com/oauth2/realms/root/realms/tme/access_token"
-VEHICLE_STATUS_URL = "https://ctpa-oneapi.tceu-ctp-prd.toyotaconnectedeurope.io/v1/global/remote/status"
+VEHICLE_STATUS_URL = "https://ctpa-oneapi.tceu-ctp-prd.toyotaconnectedeurope.io/v1/vehicle/status"
+TELEMETRY_URL = "https://ctpa-oneapi.tceu-ctp-prd.toyotaconnectedeurope.io/v3/telemetry"
 
 # Fixed Toyota EU app constants (public, in the official mobile app)
 API_KEY = "tTZipv6liF74PwMfk9Ed68AQ0bISswwf3iHQdqcF"
@@ -50,19 +51,13 @@ LOCK_OK_COLOR = "#00FF88"
 LOCK_WARN_COLOR = "#FF3030"
 
 # ── Door sections we check for lock status ────────────────────────────────────
-DOOR_SECTIONS = [
-    "carstatus_item_driver_door",
-    "carstatus_item_driver_rear_door",
-    "carstatus_item_passenger_door",
-    "carstatus_item_passenger_rear_door",
-    "carstatus_item_rear_hatch",
-]
+DOOR_KEYS = ["driver", "passenger", "rearLeft", "rearRight", "rearBack"]
 DOOR_SHORT = {
-    "carstatus_item_driver_door": "DrvDoor",
-    "carstatus_item_driver_rear_door": "DrvRear",
-    "carstatus_item_passenger_door": "PasDoor",
-    "carstatus_item_passenger_rear_door": "PasRear",
-    "carstatus_item_rear_hatch": "Hatch",
+    "driver": "DrvDoor",
+    "passenger": "PasDoor",
+    "rearLeft": "RearL",
+    "rearRight": "RearR",
+    "rearBack": "Hatch",
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -143,6 +138,9 @@ def _do_refresh(current_refresh_token, prefix):
     cache.set("toyota_at_" + prefix, new_access, ttl_seconds = at_ttl)
     cache.set("toyota_rt_" + prefix, new_refresh, ttl_seconds = REFRESH_TOKEN_TTL)
 
+    print("DEBUG new refresh_token (rotated):")
+    print(new_refresh)
+
     return new_access
 
 def get_access_token(config_refresh_token):
@@ -177,23 +175,15 @@ def _make_correlation_id(guid):
     h = hash.sha256(guid + str(time.now().unix) + str(time.now().nanosecond))
     return h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:32]
 
-def get_vehicle_status(access_token, guid, vin):
-    """Fetch /v1/global/remote/status and cache the payload for 5 min.
+def _build_headers(access_token, guid, vin):
+    """Common Toyota API headers, shared by /v1/vehicle/status and /v3/telemetry.
 
-    Returns the 'payload' dict from the Toyota response, or None on failure.
+    x-client-ref = HMAC-SHA256(CLIENT_VERSION, guid) — as per Toyota app.
     """
-    vs_key = "toyota_vs_" + hash.sha256(vin + guid)[:20]
-    cached = cache.get(vs_key)
-    if cached:
-        return json.decode(cached)
-
-    print("No cache from vs")
-
-    # x-client-ref = HMAC-SHA256(CLIENT_VERSION, guid)  — as per Toyota app
     client_ref = hmac.sha256(CLIENT_VERSION, guid)
     correlation_id = _make_correlation_id(guid)
 
-    headers = {
+    return {
         "Authorization": "Bearer " + access_token,
         "x-api-key": API_KEY,
         "x-guid": guid,
@@ -208,18 +198,50 @@ def get_vehicle_status(access_token, guid, vin):
         "user-agent": "okhttp/4.10.0",
     }
 
-    resp = http.get(VEHICLE_STATUS_URL, headers = headers)
-    print("RESP:")
+def get_vehicle_status(access_token, guid, vin):
+    """Fetch /v1/vehicle/status and cache the 'payload' dict for 5 min.
+
+    Returns the decoded 'payload' dict, or None on failure.
+    """
+    vs_key = "toyota_vs_" + hash.sha256(vin + guid)[:20]
+    cached = cache.get(vs_key)
+    if cached:
+        return json.decode(cached)
+
+    resp = http.get(VEHICLE_STATUS_URL, headers = _build_headers(access_token, guid, vin))
+    print("vehicle/status RESP:")
     print(resp.status_code)
     if resp.status_code != 200:
         return None
 
-    data = resp.json()
-    payload = data.get("payload", None)
+    payload = resp.json().get("payload", None)
     if not payload:
         return None
 
     cache.set(vs_key, json.encode(payload), ttl_seconds = VEHICLE_STATUS_TTL)
+    return payload
+
+def get_telemetry(access_token, guid, vin):
+    """Fetch /v3/telemetry and cache the 'payload' dict for 5 min.
+
+    Returns the decoded 'payload' dict, or None on failure.
+    """
+    tel_key = "toyota_tel_" + hash.sha256(vin + guid)[:20]
+    cached = cache.get(tel_key)
+    if cached:
+        return json.decode(cached)
+
+    resp = http.get(TELEMETRY_URL, headers = _build_headers(access_token, guid, vin))
+    print("telemetry RESP:")
+    print(resp.status_code)
+    if resp.status_code != 200:
+        return None
+
+    payload = resp.json().get("payload", None)
+    if not payload:
+        return None
+
+    cache.set(tel_key, json.encode(payload), ttl_seconds = VEHICLE_STATUS_TTL)
     return payload
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -227,37 +249,30 @@ def get_vehicle_status(access_token, guid, vin):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def parse_telemetry(payload):
-    """Extract fuel %, driving range and odometer from the payload.
+    """Extract fuel %, driving range and odometer from the /v3/telemetry payload.
 
     Returns (fuel_pct, range_km, odo_km) — each may be None if absent.
     """
-    print(payload)
-    tel = payload.get("telemetry", {})
-    fuel_pct = tel.get("fugage", {}).get("value", None)
-    range_km = tel.get("rage", {}).get("value", None)
-    odo_km = tel.get("odo", {}).get("value", None)
+    fuel_pct = payload.get("fuelLevel", None)
+    range_km = payload.get("distanceToEmpty", {}).get("value", None)
+    odo_km = payload.get("odometer", {}).get("value", None)
     return (fuel_pct, range_km, odo_km)
 
 def parse_lock_status(payload):
-    """Inspect vehicleStatus and return (all_locked bool, list of open labels).
+    """Inspect doors and return (all_locked bool, list of open labels).
 
-    Only door/hatch sections are considered for the lock check; windows are
-    excluded because they report closed/open but rarely have a lock value.
+    Only door sections are considered for the lock check (hood has no
+    lockStatus, windows aren't part of this payload's doors dict).
     """
-    vehicle_status = payload.get("vehicleStatus", [])
+    doors = payload.get("doors", {})
     all_locked = True
     open_parts = []
 
-    for category in vehicle_status:
-        for section in category.get("sections", []):
-            name = section.get("section", "")
-            if name not in DOOR_SECTIONS:
-                continue
-            for v in section.get("values", []):
-                val = v.get("value", "")
-                if val == "carstatus_unlocked":
-                    all_locked = False
-                    open_parts.append(DOOR_SHORT.get(name, name))
+    for key in DOOR_KEYS:
+        status = doors.get(key, {}).get("lockStatus", {}).get("status", "")
+        if status == "unlocked":
+            all_locked = False
+            open_parts.append(DOOR_SHORT.get(key, key))
 
     return (all_locked, open_parts)
 
@@ -423,12 +438,14 @@ def main(config):
         return _error_screen("Toyota", "Cannot read token sub")
 
     # ── Vehicle data ─────────────────────────────────────────────────────────
-    payload = get_vehicle_status(access_token, guid, vin)
-    if not payload:
+    vs_payload = get_vehicle_status(access_token, guid, vin)
+    if not vs_payload:
         return _error_screen("Toyota", "No vehicle data")
 
-    (fuel_pct, range_km, odo_km) = parse_telemetry(payload)
-    (all_locked, open_parts) = parse_lock_status(payload)
+    tel_payload = get_telemetry(access_token, guid, vin)
+
+    (fuel_pct, range_km, odo_km) = parse_telemetry(tel_payload) if tel_payload else (None, None, None)
+    (all_locked, open_parts) = parse_lock_status(vs_payload)
 
     # ── Build data values ─────────────────────────────────────────────────────
 
