@@ -20,7 +20,7 @@ DEVICE_TTL = 300
 
 # Known Tuya DP codes that carry temperature values
 TEMP_CODES = ["temp_current", "va_temperature", "temp", "temperature", "cur_temperature"]
-HUMIDITY_CODES = ["va_humidity", "humidity", "cur_humidity", "humid"]
+HUMIDITY_CODES = ["va_humidity", "humidity", "cur_humidity", "humid", "humidity_value"]
 
 SIG_HEADERS_VALUE = "client_id:t:nonce"
 
@@ -39,7 +39,7 @@ def generate_signature(method, url_path, query, timestamp, client_id, access_tok
         message = client_id + access_token + timestamp + nonce + string_to_sign
     else:
         message = client_id + timestamp + nonce + string_to_sign
-    
+
     return hmac.sha256(secret, message).upper()
 
 def make_signed_request(method, url_path, client_id, secret, query = "", access_token = "", endpoint = "https://openapi.tuyaus.com"):
@@ -86,14 +86,15 @@ def get_token(client_id, secret, endpoint):
         cache.set(cache_key, token, ttl_seconds = TOKEN_TTL)
     return token
 
-def get_device_info(device_id, access_token, client_id, secret, endpoint):
-    url_path = "/v1.0/devices/" + device_id
-    cache_key = "tuya_device_" + hash.sha256(client_id + device_id)
+def get_device_properties(device_id, access_token, client_id, secret, endpoint):
+    url_path = "/v2.0/cloud/thing/" + device_id + "/shadow/properties"
+    cache_key = "tuya_props_" + hash.sha256(client_id + device_id)
     cached = cache.get(cache_key)
     if cached:
         return json.decode(cached)
 
     resp = make_signed_request("GET", url_path, client_id, secret, access_token = access_token, endpoint = endpoint)
+
     #print(resp.status_code)
     #print(resp.json())
     if resp.status_code != 200:
@@ -108,9 +109,9 @@ def get_device_info(device_id, access_token, client_id, secret, endpoint):
 
 def get_temp_celsius(device_data):
     result = device_data.get("result", {})
-    for status in result.get("status", []):
-        if status.get("code", "") in TEMP_CODES:
-            val = status.get("value", None)
+    for prop in result.get("properties", []):
+        if prop.get("code", "") in TEMP_CODES:
+            val = prop.get("value", None)
             if val == None:
                 return None
             temp = float(val) / 10.0
@@ -119,9 +120,9 @@ def get_temp_celsius(device_data):
 
 def get_humidity(device_data):
     result = device_data.get("result", {})
-    for status in result.get("status", []):
-        if status.get("code", "") in HUMIDITY_CODES:
-            val = status.get("value", None)
+    for prop in result.get("properties", []):
+        if prop.get("code", "") in HUMIDITY_CODES:
+            val = prop.get("value", None)
             if val == None:
                 return None
             h = float(val)
@@ -242,12 +243,11 @@ def main(config):
     if not token:
         return error_screen("Tuya Error", "Auth failed")
 
-    device_data = get_device_info(device_id, token, client_id, secret, endpoint)
+    device_data = get_device_properties(device_id, token, client_id, secret, endpoint)
     if not device_data:
         return error_screen("Tuya Error", "Device not found")
-    
-    result = device_data.get("result", {})
-    device_name = result.get("name", "Tuya Device")
+
+    device_label = config.str("device_label", "") or "Tuya Device"
     celsius = get_temp_celsius(device_data)
     temperature = format_temperature(celsius, unit)
     t_color = temp_color(celsius)
@@ -286,7 +286,7 @@ def main(config):
                                     render.Marquee(
                                         width = 59,
                                         child = render.Text(
-                                            content = device_name,
+                                            content = device_label,
                                             font = "6x13",
                                             color = "#FFFFFF",
                                         ),
@@ -348,6 +348,12 @@ def get_schema():
                 name = "Device ID",
                 desc = "The Tuya device ID to monitor",
                 icon = "microchip",
+            ),
+            schema.Text(
+                id = "device_label",
+                name = "Device Label",
+                desc = "Optional display name shown in the header (defaults to \"Tuya Device\")",
+                icon = "tag",
             ),
             schema.Dropdown(
                 id = "endpoint",
