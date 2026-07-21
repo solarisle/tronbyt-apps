@@ -8,7 +8,7 @@ Author: radiocolin
 load("cache.star", "cache")
 load("encoding/json.star", "json")
 load("http.star", "http")
-load("render.star", "render")
+load("render.star", "canvas", "render")
 load("schema.star", "schema")
 load("time.star", "time")
 
@@ -31,14 +31,14 @@ def call_routes_api():
     if r.status_code == 200:
         routes = r.json()
 
-    # Fallback to v1 if v2 fails or is empty
-    if not routes:
-        r = http.get(API_V1 + "/Routes/")
-        if r.status_code == 200:
-            routes = r.json()
-
     if len(routes) > 0:
         cache.set("routes_v2", json.encode(routes), ttl_seconds = 604800)
+        return sort_routes(routes)
+
+    # Fallback to v1 if v2 fails or is empty — do not cache so v2 is retried next render
+    r = http.get(API_V1 + "/Routes/")
+    if r.status_code == 200:
+        routes = r.json()
     return sort_routes(routes)
 
 def sort_routes(routes):
@@ -174,6 +174,31 @@ def parse_time_to_seconds(t_str):
     s = int(parts[2])
     return h * 3600 + m * 60 + s
 
+def parse_release_date(release_name):
+    if len(release_name) != 8 or not release_name.isdigit():
+        return None
+    return release_name
+
+def select_schedule_release(full_schedule, now):
+    today = now.format("20060102")
+    dated_releases = []
+
+    for s in full_schedule:
+        release_name = parse_release_date(s.get("release_name", ""))
+        if release_name == None:
+            continue
+        if release_name not in dated_releases:
+            dated_releases.append(release_name)
+
+    if not dated_releases:
+        return None
+
+    eligible = [release_name for release_name in dated_releases if release_name <= today]
+    if eligible:
+        return max(eligible)
+
+    return max(dated_releases)
+
 def call_schedule_api(route, stopid):
     cache_key = "sched_v2_%s_%s" % (route, stopid)
 
@@ -217,11 +242,19 @@ def call_schedule_api(route, stopid):
                         "status": "LATE" if int(b.get("late", 0)) > 2 else "ON-TIME",
                     }
 
+    now = time.now().in_location("America/New_York")
+    now_secs = parse_time_to_seconds(now.format("15:04:05"))
+    selected_release = select_schedule_release(full_schedule, now)
+
+    filtered_schedule = full_schedule
+    if selected_release != None:
+        filtered_schedule = [s for s in full_schedule if s.get("release_name", "") == selected_release]
+
     service_id_counts = {}
 
     # Infer today's service_id from live trips
-    for s in full_schedule:
-        if s["trip_id"] in live_data:
+    for s in filtered_schedule:
+        if str(s["trip_id"]) in live_data:
             svc_id = s["service_id"]
             service_id_counts[svc_id] = service_id_counts.get(svc_id, 0) + 1
 
@@ -237,7 +270,7 @@ def call_schedule_api(route, stopid):
         # If we can't infer it from live data, we'll look for the most frequent
         # service_id in the schedule. This is safer than hardcoding 10/12/13.
         counts = {}
-        for s in full_schedule:
+        for s in filtered_schedule:
             sid = s["service_id"]
             counts[sid] = counts.get(sid, 0) + 1
 
@@ -249,23 +282,20 @@ def call_schedule_api(route, stopid):
                 best_sid = sid
         today_service_id = best_sid
 
-    now = time.now().in_location("America/New_York")
-    now_secs = parse_time_to_seconds(now.format("15:04:05"))
-
-    # Deduplicate by trip_id (sometimes the API returns multiple releases of the same trip)
     unique_trips = {}
-    for s in full_schedule:
+    for s in filtered_schedule:
         if s["service_id"] != today_service_id:
             continue
 
-        tid = s["trip_id"]
-
-        # If we have multiple releases, the one with the higher release_name is likely newer
-        if tid not in unique_trips or s.get("release_name", "") > unique_trips[tid].get("release_name", ""):
+        # A single release should already be canonical, but keep trip_id-based
+        # dedupe in case SEPTA repeats the same trip within that release.
+        tid = str(s["trip_id"])
+        if tid not in unique_trips:
             unique_trips[tid] = s
 
     results = []
-    for trip_id, s in unique_trips.items():
+    for s in unique_trips.values():
+        trip_id = str(s["trip_id"])
         sched_secs = parse_time_to_seconds(s["arrival_time"])
         delay = 0
         is_live = False
@@ -308,7 +338,7 @@ def call_schedule_api(route, stopid):
     # Sort by ETA
     return sorted(results, key = lambda x: x["eta_secs"])[:10]
 
-def get_schedule(route, stopid, show_relative_times):
+def get_schedule(route, stopid, show_relative_times, scale):
     departures = call_schedule_api(route, stopid)
 
     # 1. Pre-process to find max width needed for the time column
@@ -338,9 +368,11 @@ def get_schedule(route, stopid, show_relative_times):
         processed_deps.append((dep, t_str))
 
     # tom-thumb font is roughly 4px wide per character (3px glyph + 1px spacing)
-    time_col_width = max_chars * 4 + 1
-    if time_col_width < 12:
-        time_col_width = 12
+    # terminus-12 is roughly 6px wide
+    char_width = 4 if scale == 1 else 6
+    time_col_width = max_chars * char_width + 1
+    if time_col_width < 12 * scale:
+        time_col_width = 12 * scale
 
     list_of_departures = []
     for i, (dep, t_str) in enumerate(processed_deps):
@@ -362,19 +394,22 @@ def get_schedule(route, stopid, show_relative_times):
             else:
                 headsign += " - %d stops away" % dep["stops_away"]
 
+        row_font = "tom-thumb" if scale == 1 else "terminus-12"
+        row_height = 6 * scale
+
         item = render.Box(
-            height = 6,
-            width = 64,
+            height = row_height,
+            width = 64 * scale,
             color = background,
             child = render.Row(
                 children = [
                     render.Box(
                         width = time_col_width,
                         child = render.Padding(
-                            pad = (0, 0, 1, 0),  # Small gap before marquee
+                            pad = (0, 0, 1 * scale, 0),  # Small gap before marquee
                             child = render.Text(
                                 content = t_str,
-                                font = "tom-thumb",
+                                font = row_font,
                                 color = time_color,
                             ),
                         ),
@@ -382,12 +417,12 @@ def get_schedule(route, stopid, show_relative_times):
                     render.Marquee(
                         child = render.Text(
                             headsign,
-                            font = "tom-thumb",
+                            font = row_font,
                             color = text,
                         ),
-                        width = 64 - time_col_width,
-                        offset_start = 40,
-                        offset_end = 40,
+                        width = 64 * scale - time_col_width,
+                        offset_start = 40 * scale,
+                        offset_end = 40 * scale,
                     ),
                 ],
             ),
@@ -397,10 +432,10 @@ def get_schedule(route, stopid, show_relative_times):
     if len(list_of_departures) < 1:
         msg = "No departures" if stopid else "Select a stop"
         return [render.Box(
-            height = 6,
-            width = 64,
+            height = 6 * scale,
+            width = 64 * scale,
             color = "#000",
-            child = render.Text(msg, font = "tom-thumb"),
+            child = render.Text(msg, font = "tom-thumb" if scale == 1 else "tb-8"),
         )]
     else:
         return list_of_departures
@@ -421,14 +456,15 @@ def select_stop(route):
     ]
 
 def main(config):
+    scale = 2 if canvas.is2x() else 1
     route = config.str("route", DEFAULT_ROUTE)
     stop = config.str("stop", DEFAULT_STOP)
     show_relative_times = config.bool("show_relative_times", False)
     user_text = config.str("banner", "")
-    schedule = get_schedule(route, stop, show_relative_times)
+    schedule = get_schedule(route, stop, show_relative_times, scale)
     timezone = config.get("timezone") or "America/New_York"
     now = time.now().in_location(timezone)
-    left_pad = 4
+    left_pad = 4 * scale
 
     route_info = get_route_info(route)
     if route_info:
@@ -448,6 +484,10 @@ def main(config):
     else:
         banner_text = user_text
 
+    banner_font = "tom-thumb" if scale == 1 else "terminus-14"
+    banner_height = 6 if scale == 1 else 14
+    bottom_pad = 2 if scale == 1 else 2
+
     if config.bool("show_time"):
         if int(now.format("15")) < 12:
             meridian = "a"
@@ -465,12 +505,12 @@ def main(config):
                 render.Column(
                     children = [
                         render.Stack(children = [
-                            render.Box(height = 6, width = 64, color = route_bg_color),
-                            render.Padding(pad = (left_pad, 0, 0, 0), child = render.Text(banner_text, font = "tom-thumb", color = route_text_color)),
+                            render.Box(height = banner_height, width = 64 * scale, color = route_bg_color),
+                            render.Padding(pad = (left_pad, 0, 0, 0), child = render.Text(banner_text, font = banner_font, color = route_text_color)),
                         ]),
                     ],
                 ),
-                render.Padding(pad = (0, 0, 0, 2), color = route_bg_color, child = render.Column(children = schedule)),
+                render.Padding(pad = (0, 0, 0, bottom_pad), color = route_bg_color, child = render.Column(children = schedule)),
             ],
         ),
     )
