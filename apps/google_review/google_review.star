@@ -9,6 +9,7 @@ load("http.star", "http")
 load("random.star", "random")
 load("render.star", "render")
 load("schema.star", "schema")
+load("time.star", "time")
 load("images/star_filled.webp", STAR_FILLED_ASSET = "file")
 load("images/star_empty.webp", STAR_EMPTY_ASSET = "file")
 
@@ -16,6 +17,8 @@ CACHE_TIMEOUT = 43200  # 12 hours
 MAX_CHARS_PER_LINE = 12  # approximate chars that fit in 64px width
 MAX_CHARS_PER_LINE_WIDE = 10  # ~10 chars fit in 64px with 6x13 font (6px/char)
 DEFAULT_TEXT_SPEED = "100"
+
+ISO_DATE_FORMAT = "2006-01-02T15:04:05Z"  # serpapi iso_date, e.g. "2026-07-17T18:00:57Z"
 
 # Load star icons
 STAR_FILLED = STAR_FILLED_ASSET.readall()
@@ -27,6 +30,11 @@ COLOR_RATING = "#FFC107"        # Modern amber/gold
 COLOR_DATE = "#81D4FA"          # Modern light cyan
 COLOR_USER = "#FFB74D"          # Warm orange
 COLOR_SNIPPET = "#CE93D8"       # Modern purple
+
+NEWS_FLASH_TEXT = "!NEWS!"
+FLASH_BG_COLORS = ["#FF1744", "#FFD700"]  # red / gold alternating
+FLASH_TEXT_COLORS = ["#FFFFFF", "#000000"]  # matching contrast per bg
+FLASH_DURATION_MS = 2000
 
 def build_star_row(rating_int):
     """Build a row of star icons based on rating"""
@@ -54,6 +62,34 @@ def build_star_row(rating_int):
     )
 
     return stars
+
+def _is_today(iso_date_str, now):
+    """Return True if iso_date_str (RFC3339 UTC) is on the same calendar day as now."""
+    if not iso_date_str:
+        return False
+    if len(iso_date_str) != 20 or not iso_date_str.endswith("Z"):
+        return False
+    review_time = time.parse_time(iso_date_str, ISO_DATE_FORMAT, time.tz())
+    return (review_time.year == now.year and
+            review_time.month == now.month and
+            review_time.day == now.day)
+
+def _make_news_flash(frame_count):
+    """Full-screen alternating-background "!NEWS!" flash, ~2s total.
+    A Sequence sibling of review_marquee - never nests Marquee inside
+    this Animation, avoiding the Animation/Marquee scroll-reset gotcha."""
+    frames = []
+    for i in range(frame_count):
+        idx = i % 2
+        frames.append(
+            render.Box(
+                width = 64,
+                height = 32,
+                color = FLASH_BG_COLORS[idx],
+                child = render.Text(content = NEWS_FLASH_TEXT, font = "10x20", color = FLASH_TEXT_COLORS[idx]),
+            ),
+        )
+    return render.Animation(children = frames)
 
 def word_wrap(text, max_chars):
     """Wrap text at word boundaries to prevent mid-word breaks."""
@@ -121,7 +157,17 @@ def main(config):
         return render_error("No reviews found")
 
     review_count = min(len(reviews), 5)
-    review = reviews[random.number(0, review_count - 1)]
+    candidates = reviews[:review_count]
+
+    now = time.now().in_location(time.tz())
+    today_candidates = [r for r in candidates if _is_today(r.get("iso_date", ""), now)]
+
+    if today_candidates:
+        review = today_candidates[random.number(0, len(today_candidates) - 1)]
+        is_today_review = True
+    else:
+        review = candidates[random.number(0, review_count - 1)]
+        is_today_review = False
 
     rating = review.get("rating")
     date = review.get("date", "Unknown")
@@ -133,60 +179,72 @@ def main(config):
     if rating:
         rating_int = int(rating)
 
-    return render.Root(
-        delay = int(config.str("text_speed", DEFAULT_TEXT_SPEED)),
-        child = render.Marquee(
-            width = 64,
-            height = 32,
-            scroll_direction = "vertical",
-            align = "center",
-            child = render.Column(
-                cross_align = "center",
-                children = [
-                    # Header
-                    render.WrappedText(
-                        content = word_wrap(place_name, MAX_CHARS_PER_LINE_WIDE),
-                        color = COLOR_HEADER,
-                        font = "6x13",
-                        width = 64,
-                    ),
-                    render.Box(width = 64, height = 4),
+    text_delay = int(config.str("text_speed", DEFAULT_TEXT_SPEED))
 
-                    # Rating with multiple stars
-                    render.Row(
-                        main_align = "center",
-                        cross_align = "center",
-                        children = build_star_row(rating_int if rating else 0),
-                    ),
-                    render.Box(width = 64, height = 4),
+    review_marquee = render.Marquee(
+        width = 64,
+        height = 32,
+        scroll_direction = "vertical",
+        align = "center",
+        child = render.Column(
+            cross_align = "center",
+            children = [
+                # Header
+                render.WrappedText(
+                    content = word_wrap(place_name, MAX_CHARS_PER_LINE_WIDE),
+                    color = COLOR_HEADER,
+                    #font = "6x13",
+                    width = 64,
+                ),
+                render.Box(width = 64, height = 4),
 
-                    # Date
-                    render.WrappedText(
-                        content = word_wrap("Date: " + date, MAX_CHARS_PER_LINE_WIDE),
-                        color = COLOR_DATE,
-                        font = "6x13",
-                        width = 64,
-                    ),
-                    render.Box(width = 64, height = 4),
+                # Rating with multiple stars
+                render.Row(
+                    main_align = "center",
+                    cross_align = "center",
+                    children = build_star_row(rating_int if rating else 0),
+                ),
+                render.Box(width = 64, height = 4),
 
-                    # User Name
-                    render.WrappedText(
-                        content = word_wrap("By: " + user_name, MAX_CHARS_PER_LINE_WIDE),
-                        color = COLOR_USER,
-                        font = "6x13",
-                        width = 64,
-                    ),
-                    render.Box(width = 64, height = 4),
+                # Date
+                render.WrappedText(
+                    content = word_wrap("Date: " + date, MAX_CHARS_PER_LINE_WIDE),
+                    color = COLOR_DATE,
+                    #font = "6x13",
+                    width = 64,
+                ),
+                render.Box(width = 64, height = 4),
 
-                    # Snippet
-                    render.WrappedText(
-                        content = word_wrap(snippet, MAX_CHARS_PER_LINE),
-                        color = COLOR_SNIPPET,
-                        width = 64,
-                    ),
-                ],
-            ),
+                # User Name
+                render.WrappedText(
+                    content = word_wrap("By: " + user_name, MAX_CHARS_PER_LINE_WIDE),
+                    color = COLOR_USER,
+                    #font = "6x13",
+                    width = 64,
+                ),
+                render.Box(width = 64, height = 4),
+
+                # Snippet
+                render.WrappedText(
+                    content = word_wrap(snippet, MAX_CHARS_PER_LINE),
+                    color = COLOR_SNIPPET,
+                    width = 64,
+                ),
+            ],
         ),
+    )
+
+    if is_today_review:
+        flash_frame_count = max(2, FLASH_DURATION_MS // text_delay)
+        root_child = render.Sequence(
+            children = [_make_news_flash(flash_frame_count), review_marquee],
+        )
+    else:
+        root_child = review_marquee
+
+    return render.Root(
+        delay = text_delay,
+        child = root_child,
     )
 
 def render_error(error_text):
