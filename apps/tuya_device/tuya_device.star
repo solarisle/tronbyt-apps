@@ -86,6 +86,24 @@ def get_token(client_id, secret, endpoint):
         cache.set(cache_key, token, ttl_seconds = TOKEN_TTL)
     return token
 
+def get_device_info(device_id, access_token, client_id, secret, endpoint):
+    url_path = "/v2.0/cloud/thing/" + device_id
+    cache_key = "tuya_info_" + hash.sha256(client_id + device_id)
+    cached = cache.get(cache_key)
+    if cached:
+        return json.decode(cached)
+
+    resp = make_signed_request("GET", url_path, client_id, secret, access_token = access_token, endpoint = endpoint)
+    if resp.status_code != 200:
+        return None
+
+    data = resp.json()
+    if not data.get("success", False):
+        return None
+
+    cache.set(cache_key, json.encode(data), ttl_seconds = DEVICE_TTL)
+    return data
+
 def get_device_properties(device_id, access_token, client_id, secret, endpoint):
     url_path = "/v2.0/cloud/thing/" + device_id + "/shadow/properties"
     cache_key = "tuya_props_" + hash.sha256(client_id + device_id)
@@ -243,30 +261,41 @@ def main(config):
     if not token:
         return error_screen("Tuya Error", "Auth failed")
 
+    device_info = get_device_info(device_id, token, client_id, secret, endpoint)
+    if not device_info:
+        return error_screen("Tuya Error", "Device not found")
+
+    info_result = device_info.get("result", {})
+    device_label = info_result.get("custom_name", "") or info_result.get("name", "") or "Tuya Device"
+    is_online = info_result.get("is_online", False)
+
     device_data = get_device_properties(device_id, token, client_id, secret, endpoint)
     if not device_data:
         return error_screen("Tuya Error", "Device not found")
 
-    device_label = config.str("device_label", "") or "Tuya Device"
     celsius = get_temp_celsius(device_data)
     temperature = format_temperature(celsius, unit)
     t_color = temp_color(celsius)
     humidity = get_humidity(device_data)
     humidity_str = "%d%%" % int(humidity) if humidity != None else None
 
-    # Accent bar pulses through orange shades for a "breathing" glow effect
-    accent_bar = render.Animation(
-        children = [
-            render.Box(width = 3, height = 15, color = "#FF6B35"),
-            render.Box(width = 3, height = 15, color = "#FF8C00"),
-            render.Box(width = 3, height = 15, color = "#FFD700"),
-            render.Box(width = 3, height = 15, color = "#FF8C00"),
-            render.Box(width = 3, height = 15, color = "#FF6B35"),
-            render.Box(width = 3, height = 15, color = "#CC4400"),
-            render.Box(width = 3, height = 15, color = "#FF3300"),
-            render.Box(width = 3, height = 15, color = "#CC4400"),
-        ],
-    )
+    if is_online:
+        # Accent bar pulses through orange shades for a "breathing" glow effect
+        accent_bar = render.Animation(
+            children = [
+                render.Box(width = 3, height = 15, color = "#FF6B35"),
+                render.Box(width = 3, height = 15, color = "#FF8C00"),
+                render.Box(width = 3, height = 15, color = "#FFD700"),
+                render.Box(width = 3, height = 15, color = "#FF8C00"),
+                render.Box(width = 3, height = 15, color = "#FF6B35"),
+                render.Box(width = 3, height = 15, color = "#CC4400"),
+                render.Box(width = 3, height = 15, color = "#FF3300"),
+                render.Box(width = 3, height = 15, color = "#CC4400"),
+            ],
+        )
+    else:
+        # Device offline: steady red block instead of the breathing animation
+        accent_bar = render.Box(width = 3, height = 15, color = "#FF2020")
 
     return render.Root(
         delay = 120,
@@ -348,12 +377,6 @@ def get_schema():
                 name = "Device ID",
                 desc = "The Tuya device ID to monitor",
                 icon = "microchip",
-            ),
-            schema.Text(
-                id = "device_label",
-                name = "Device Label",
-                desc = "Optional display name shown in the header (defaults to \"Tuya Device\")",
-                icon = "tag",
             ),
             schema.Dropdown(
                 id = "endpoint",
