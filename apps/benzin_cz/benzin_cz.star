@@ -54,9 +54,20 @@ def fetch_prices(place, brand, station_id):
 
     doc = html(res.body())
 
-    benzin  = doc.find("#ContentPlaceHolder1_lN95Cost").eq(0).text().strip()
-    nafta   = doc.find("#ContentPlaceHolder1_lDieselCost").eq(0).text().strip()
     station = doc.find("h1").eq(0).text().strip()
+
+    benzin = "N/A"
+    nafta  = "N/A"
+
+    cards = doc.find(".fuelcard")
+    for i in range(cards.len()):
+        card = cards.eq(i)
+        name = card.find("h2").eq(0).text().strip()
+
+        if name == "Benzín":
+            benzin = _card_price(card)
+        elif name == "Nafta":
+            nafta = _card_price(card)
 
     if benzin == "-" or benzin == "":
         benzin = "N/A"
@@ -64,6 +75,13 @@ def fetch_prices(place, brand, station_id):
         nafta = "N/A"
 
     return benzin, nafta, station
+
+def _card_price(card):
+    """Extract the price from a .fuelcard's <meta itemprop="price"> tag, Czech-comma formatted."""
+    meta = card.find("meta[itemprop='price']")
+    if meta.len() == 0:
+        return "N/A"
+    return meta.eq(0).attr("content").replace(".", ",")
 
 def price_row(label, value, label_color, accent_color, bg_color, row_height):
     """A styled row with coloured background, left accent bar, and price on the right."""
