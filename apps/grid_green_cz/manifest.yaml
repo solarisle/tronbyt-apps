@@ -1,0 +1,16 @@
+---
+id: grid-green-cz
+name: Grid Green CZ
+summary: Czech grid renewable share
+desc: Live Czech electricity generation mix from the ČEPS transmission operator - renewable (OZE) or low-carbon share, estimated CO2 intensity and a stacked bar of nuclear, coal, gas, biomass, hydro, wind and solar.
+author: Tronbyt
+fileName: grid_green_cz.star
+packageName: grid_green_cz
+recommendedInterval: 15
+category: environment
+tags:
+  - electricity
+  - energy
+  - renewables
+  - czech
+  - ceps

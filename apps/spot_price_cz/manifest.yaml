@@ -1,0 +1,16 @@
+---
+id: spot-price-cz
+name: Spot Price CZ
+summary: Czech spot electricity price
+desc: Current 15-minute OTE spot electricity price in CZK/kWh with a green/yellow/red level light, today's rank and a bar chart of the next 4 hours. Data from spotovaelektrina.cz.
+author: Tronbyt
+fileName: spot_price_cz.star
+packageName: spot_price_cz
+recommendedInterval: 15
+category: utilities
+tags:
+  - electricity
+  - energy
+  - czech
+  - spot
+  - ote
