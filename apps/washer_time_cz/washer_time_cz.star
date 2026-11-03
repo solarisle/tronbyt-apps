@@ -22,6 +22,11 @@ BODY_COLOR = "#B0BEC5"
 NOW_COLOR = "#00E676"
 LATER_COLOR = "#40C4FF"
 SAVE_COLOR = "#00E676"
+LAUNDRY_COLOR = "#FFFFFF"
+FRAME_DELAY = 100
+
+# laundry pixels tumbling inside the door, clockwise (row, col)
+DRUM_PATH = [(5, 4), (5, 5), (5, 6), (6, 7), (7, 7), (8, 6), (8, 5), (8, 4), (7, 3), (6, 3)]
 
 # 11x12 washing machine, "o" = door (accent colour)
 WASHER = [
@@ -96,16 +101,24 @@ def _best_window(slots, first, length, start_from, start_until):
             best_avg = avg
     return best, best_avg
 
-def _icon(scale, accent):
+def _icon(scale, accent, step):
     px = 1 * scale
+    n = len(DRUM_PATH)
+    laundry = [DRUM_PATH[step % n], DRUM_PATH[(step + n // 2) % n]]
     rows = []
-    for row in WASHER:
+    for r, row in enumerate(WASHER):
         cells = []
-        for c in row.elems():
-            color = BODY_COLOR if c == "#" else (accent if c == "o" else BG_COLOR)
+        for c, ch in enumerate(row.elems()):
+            if (r, c) in laundry:
+                color = LAUNDRY_COLOR
+            else:
+                color = BODY_COLOR if ch == "#" else (accent if ch == "o" else BG_COLOR)
             cells.append(render.Box(width = px, height = px, color = color))
         rows.append(render.Row(children = cells))
     return render.Column(children = rows)
+
+def _spinning_icon(scale, accent):
+    return render.Animation(children = [_icon(scale, accent, i) for i in range(len(DRUM_PATH))])
 
 def _render_message(msg):
     return render.Root(
@@ -175,7 +188,13 @@ def main(config):
                 render.Text("to " + _end_time(end_slot), font = small_font, color = LABEL_COLOR),
             ],
         ),
-        render.Text(big, font = big_font, color = accent),
+        # "START!" blinks when now is the best time
+        render.Animation(
+            children = [
+                render.Text(big, font = big_font, color = accent if (not is_now or i < 7) else BG_COLOR)
+                for i in range(len(DRUM_PATH))
+            ],
+        ),
         render.Row(
             expanded = True,
             main_align = "space_between",
@@ -187,6 +206,7 @@ def main(config):
     ]
 
     return render.Root(
+        delay = FRAME_DELAY,
         child = render.Box(
             width = width,
             height = height,
@@ -197,7 +217,7 @@ def main(config):
                     expanded = True,
                     cross_align = "center",
                     children = [
-                        _icon(scale, accent),
+                        _spinning_icon(scale, accent),
                         render.Box(width = 2 * scale, height = 1),
                         render.Column(
                             expanded = True,

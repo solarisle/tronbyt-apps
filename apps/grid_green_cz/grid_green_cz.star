@@ -15,6 +15,10 @@ load("xpath.star", "xpath")
 CEPS_URL = "https://www.ceps.cz/_layouts/CepsData.asmx"
 SOAP_ACTION = "https://www.ceps.cz/CepsData/Generation"
 CACHE_TTL = 600
+FRAME_DELAY = 100
+GROW_FRAMES = 15  # bar and percentage build up over 1.5 s
+FRAME_COUNT = 60  # then hold; 6 s loop
+LEAF_PERIOD = 20
 TZ = "Europe/Prague"
 
 SOAP_TEMPLATE = """<?xml version="1.0" encoding="utf-8"?>
@@ -38,6 +42,26 @@ SOURCES = [
 BG_COLOR = "#000000"
 LABEL_COLOR = "#8A8A8A"
 TEXT_COLOR = "#E0E0E0"
+
+def _hex2(n):
+    s = "%X" % n
+    return s if len(s) >= 2 else "0" + s
+
+def _mix(c1, c2, t):
+    # linear blend of two "#RRGGBB" colours, t = 0 → c1, t = 1 → c2
+    out = "#"
+    for k in (1, 3, 5):
+        a = int(c1[k:k + 2], 16)
+        b = int(c2[k:k + 2], 16)
+        out += _hex2(int(a + (b - a) * t))
+    return out
+
+def _grow(i):
+    # ease-out 0 → 1 over GROW_FRAMES, then stays at 1
+    if i >= GROW_FRAMES:
+        return 1.0
+    t = i * 1.0 / GROW_FRAMES
+    return 1 - (1 - t) * (1 - t)
 
 def _two(n):
     return str(n) if n >= 10 else "0" + str(n)
@@ -111,6 +135,16 @@ def _stacked_bar(values, total, width, height):
             used = end
     return render.Row(children = segments)
 
+def _growing_bar(values, total, width, height):
+    frames = []
+    for i in range(FRAME_COUNT):
+        w = int(width * _grow(i))
+        bar = _stacked_bar(values, total, w, height) if w > 0 else render.Box(width = 1, height = height)
+
+        # fixed-size, left-anchored canvas so the bar grows from the left edge
+        frames.append(render.Stack(children = [render.Box(width = width, height = height), bar]))
+    return render.Animation(children = frames)
+
 def _leaf(scale, color):
     # tiny pixel leaf, 5x5 at 1x
     rows = ["..###", ".####", "#####", ".###.", "#...."]
@@ -162,7 +196,12 @@ def main(config):
             render.Row(
                 cross_align = "center",
                 children = [
-                    _leaf(scale, color),
+                    render.Animation(
+                        children = [
+                            _leaf(scale, _mix(color, "#0A1A0A", 0.7 * (1 - math.cos(2 * math.pi * i / LEAF_PERIOD)) / 2))
+                            for i in range(LEAF_PERIOD)
+                        ],
+                    ),
                     render.Box(width = 2 * scale, height = 1),
                     render.Text(label, font = small_font, color = LABEL_COLOR),
                 ],
@@ -176,7 +215,12 @@ def main(config):
         main_align = "space_between",
         cross_align = "end",
         children = [
-            render.Text("%d%%" % pct, font = big_font, color = color),
+            render.Animation(
+                children = [
+                    render.Text("%d%%" % int(math.round(pct * _grow(i))), font = big_font, color = color)
+                    for i in range(FRAME_COUNT)
+                ],
+            ),
             render.Column(
                 cross_align = "end",
                 children = [
@@ -188,6 +232,7 @@ def main(config):
     )
 
     return render.Root(
+        delay = FRAME_DELAY,
         child = render.Box(
             width = width,
             height = height,
@@ -200,7 +245,7 @@ def main(config):
                     children = [
                         header,
                         main_row,
-                        _stacked_bar(values, total, width - 2 * scale, 5 * scale),
+                        _growing_bar(values, total, width - 2 * scale, 5 * scale),
                     ],
                 ),
             ),

@@ -16,6 +16,8 @@ CACHE_TTL = 900
 TZ = "Europe/Prague"
 VAT = 1.21
 NEXT_SLOTS = 16
+FRAME_COUNT = 20
+FRAME_DELAY = 100
 
 BG_COLOR = "#000000"
 LABEL_COLOR = "#8A8A8A"
@@ -30,6 +32,23 @@ LEVELS = {
 
 def _level_colors(level):
     return LEVELS.get(level, ("#9E9E9E", "#1A1A1A"))
+
+def _hex2(n):
+    s = "%X" % n
+    return s if len(s) >= 2 else "0" + s
+
+def _mix(c1, c2, t):
+    # linear blend of two "#RRGGBB" colours, t = 0 → c1, t = 1 → c2
+    out = "#"
+    for k in (1, 3, 5):
+        a = int(c1[k:k + 2], 16)
+        b = int(c2[k:k + 2], 16)
+        out += _hex2(int(a + (b - a) * t))
+    return out
+
+def _pulse(i, period):
+    # cosine ease 0 → 1 → 0 over one period
+    return (1 - math.cos(2 * math.pi * (i % period) / period)) / 2
 
 def _format_price(value):
     # Czech decimal comma, 2 decimals, handles negative prices
@@ -69,7 +88,7 @@ def _render_message(msg):
         ),
     )
 
-def _bar_chart(upcoming, scale):
+def _bar_chart(upcoming, scale, cap_color):
     # upcoming: list of (price, level); the first one is the current slot
     bar_w = 3 * scale
     gap = 1 * scale
@@ -88,7 +107,7 @@ def _bar_chart(upcoming, scale):
         column = [render.Box(width = bar_w, height = max_h - h)]
         if i == 0:
             # current slot: white cap on top of the bar
-            column.append(render.Box(width = bar_w, height = 1 * scale, color = NOW_MARK_COLOR))
+            column.append(render.Box(width = bar_w, height = 1 * scale, color = cap_color))
             column.append(render.Box(width = bar_w, height = max(h - 1 * scale, 0), color = color))
         else:
             column.append(render.Box(width = bar_w, height = h, color = color))
@@ -128,6 +147,22 @@ def main(config):
     for s in (today[idx:] + tomorrow)[:NEXT_SLOTS]:
         upcoming.append((_kwh_price(s, markup, with_vat), s.get("level", "")))
 
+    # expensive slots breathe twice as fast
+    period = FRAME_COUNT // 2 if level == "high" else FRAME_COUNT
+    dot = render.Animation(
+        children = [
+            render.Circle(diameter = 5 * scale, color = _mix(light, tint, 0.85 * _pulse(i, period)))
+            for i in range(FRAME_COUNT)
+        ],
+    )
+    current_color = _level_colors(upcoming[0][1])[0]
+    bars = render.Animation(
+        children = [
+            _bar_chart(upcoming, scale, _mix(NOW_MARK_COLOR, current_color, _pulse(i, FRAME_COUNT)))
+            for i in range(FRAME_COUNT)
+        ],
+    )
+
     header = render.Row(
         expanded = True,
         main_align = "space_between",
@@ -136,7 +171,7 @@ def main(config):
             render.Row(
                 cross_align = "center",
                 children = [
-                    render.Circle(diameter = 5 * scale, color = light),
+                    dot,
                     render.Box(width = 2 * scale, height = 1),
                     render.Text("%s:%s" % (_two(int(current["hour"])), _two(int(current["minute"]))), font = small_font, color = LABEL_COLOR),
                 ],
@@ -155,6 +190,7 @@ def main(config):
     )
 
     return render.Root(
+        delay = FRAME_DELAY,
         child = render.Box(
             width = width,
             height = height,
@@ -168,7 +204,7 @@ def main(config):
                     children = [
                         header,
                         price_row,
-                        _bar_chart(upcoming, scale),
+                        bars,
                     ],
                 ),
             ),

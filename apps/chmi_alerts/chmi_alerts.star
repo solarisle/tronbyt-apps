@@ -6,6 +6,7 @@ Author: Tronbyt
 """
 
 load("http.star", "http")
+load("math.star", "math")
 load("re.star", "re")
 load("render.star", "canvas", "render")
 load("schema.star", "schema")
@@ -40,6 +41,19 @@ TRIANGLE = [
     "#..!..#",
     "#######",
 ]
+
+def _hex2(n):
+    s = "%X" % n
+    return s if len(s) >= 2 else "0" + s
+
+def _mix(c1, c2, t):
+    # linear blend of two "#RRGGBB" colours, t = 0 → c1, t = 1 → c2
+    out = "#"
+    for k in (1, 3, 5):
+        a = int(c1[k:k + 2], 16)
+        b = int(c2[k:k + 2], 16)
+        out += _hex2(int(a + (b - a) * t))
+    return out
 
 def _two(n):
     return str(n) if n >= 10 else "0" + str(n)
@@ -109,6 +123,23 @@ def _triangle(scale, color, mark):
         rows.append(render.Row(children = cells))
     return render.Column(children = rows)
 
+def _animated_triangle(scale, level, light, tint, has_alerts):
+    # frame counts are multiplied by scale because the 2x root delay is halved
+    frames = []
+    if has_alerts:
+        # square-wave blink: red 0.4 s period, yellow/orange 1 s
+        half = (4 if level >= 4 else 10) * scale
+        for i in range(2 * half):
+            on = i < half
+            frames.append(_triangle(scale, light if on else _mix(light, tint, 0.8), TEXT_COLOR if on else tint))
+    else:
+        # calm 2 s breathing when there is no warning
+        n = 40 * scale
+        for i in range(n):
+            t = (1 - math.cos(2 * math.pi * i / n)) / 2
+            frames.append(_triangle(scale, _mix(light, tint, 0.75 * t), tint))
+    return render.Animation(children = frames)
+
 def _hhmm(t):
     t = t.in_location(TZ)
     return "%s:%s" % (_two(t.hour), _two(t.minute))
@@ -166,7 +197,7 @@ def main(config):
     header = render.Row(
         cross_align = "center",
         children = [
-            _triangle(scale, light, TEXT_COLOR if alerts else tint),
+            _animated_triangle(scale, top_level, light, tint, len(alerts) > 0),
             render.Box(width = 2 * scale, height = 1),
             render.Text(name, font = small_font, color = light),
         ],
