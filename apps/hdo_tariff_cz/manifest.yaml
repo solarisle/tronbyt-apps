@@ -1,0 +1,17 @@
+---
+id: hdo-tariff-cz
+name: HDO Tariff CZ
+summary: EG.D low/high tariff alerts
+desc: EG.D Distribuce HDO low (NT) / high (VT) tariff schedule for your HDO code. Warns before VT starts, counts down VT with a heating-paused note, and shows today's 24-hour NT/VT timeline. Data from hdo.distribuce24.cz.
+author: Tronbyt
+fileName: hdo_tariff_cz.star
+packageName: hdo_tariff_cz
+recommendedInterval: 5
+supports2x: true
+category: utilities
+tags:
+  - electricity
+  - energy
+  - czech
+  - hdo
+  - tariff
