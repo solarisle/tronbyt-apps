@@ -1,0 +1,17 @@
+---
+id: chmi-alerts
+name: CHMI Alerts
+summary: Czech weather warning light
+desc: Active ČHMÚ weather warnings for your ORP district from the official CAP open data (opendata.chmi.cz, CC BY 4.0). Shows a yellow/orange/red warning light, the time it starts or ends and scrolling event names. Can hide itself when there are no warnings.
+author: Tronbyt
+fileName: chmi_alerts.star
+packageName: chmi_alerts
+recommendedInterval: 10
+supports2x: true
+category: weather
+tags:
+  - weather
+  - warnings
+  - czech
+  - chmi
+  - alerts
