@@ -22,6 +22,8 @@ FRAME_DELAY = 100
 BG_COLOR = "#000000"
 LABEL_COLOR = "#8A8A8A"
 NOW_MARK_COLOR = "#FFFFFF"
+HOUR_TICK_COLOR = "#8A8A8A"
+MIDNIGHT_TICK_COLOR = "#FFFFFF"
 
 # level → (light colour, dim background tint)
 LEVELS = {
@@ -89,16 +91,17 @@ def _render_message(msg):
     )
 
 def _bar_chart(upcoming, scale, cap_color):
-    # upcoming: list of (price, level); the first one is the current slot
+    # upcoming: list of (price, level, hour, minute); the first one is the current slot.
+    # each bar is one 15-minute slot; a tick under the bar marks a full hour.
     bar_w = 3 * scale
     gap = 1 * scale
     max_h = 7 * scale
-    prices = [p for p, _ in upcoming]
+    prices = [u[0] for u in upcoming]
     lo = min(prices)
     hi = max(prices)
     span = hi - lo
     bars = []
-    for i, (price, level) in enumerate(upcoming):
+    for i, (price, level, hour, minute) in enumerate(upcoming):
         if span > 0:
             h = 1 * scale + int((price - lo) * 1.0 / span * (max_h - 1 * scale))
         else:
@@ -111,9 +114,15 @@ def _bar_chart(upcoming, scale, cap_color):
             column.append(render.Box(width = bar_w, height = max(h - 1 * scale, 0), color = color))
         else:
             column.append(render.Box(width = bar_w, height = h, color = color))
+        column.append(render.Box(width = bar_w, height = 1 * scale))
+        if minute == 0:
+            tick = MIDNIGHT_TICK_COLOR if hour == 0 else HOUR_TICK_COLOR
+            column.append(render.Box(width = bar_w, height = 1 * scale, color = tick))
+        else:
+            column.append(render.Box(width = bar_w, height = 1 * scale))
         bars.append(render.Column(children = column))
         if i < len(upcoming) - 1:
-            bars.append(render.Box(width = gap, height = max_h))
+            bars.append(render.Box(width = gap, height = max_h + 2 * scale))
     return render.Row(children = bars)
 
 def main(config):
@@ -145,7 +154,7 @@ def main(config):
 
     upcoming = []
     for s in (today[idx:] + tomorrow)[:NEXT_SLOTS]:
-        upcoming.append((_kwh_price(s, markup, with_vat), s.get("level", "")))
+        upcoming.append((_kwh_price(s, markup, with_vat), s.get("level", ""), int(s["hour"]), int(s["minute"])))
 
     # expensive slots breathe twice as fast
     period = FRAME_COUNT // 2 if level == "high" else FRAME_COUNT

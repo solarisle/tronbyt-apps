@@ -1,7 +1,7 @@
 """
 Applet: Washer Time CZ
-Summary: Cheapest time to run appliances
-Description: Finds the cheapest upcoming window on the Czech OTE 15-minute spot market for running a washing machine or dishwasher, with average price and saving versus starting now.
+Summary: Best times for appliances
+Description: Rotates the top 3 upcoming windows on the Czech OTE 15-minute spot market: the cheapest times to run a washing machine, or the most expensive times to keep electric heating off.
 Author: Tronbyt
 """
 
@@ -22,8 +22,14 @@ BODY_COLOR = "#B0BEC5"
 NOW_COLOR = "#00E676"
 LATER_COLOR = "#40C4FF"
 SAVE_COLOR = "#00E676"
+AVOID_COLOR = "#FF3D3D"
+OK_COLOR = "#00E676"
 LAUNDRY_COLOR = "#FFFFFF"
+HEAT_COLOR = "#FF9100"
+DOT_DIM_COLOR = "#3A3A3A"
 FRAME_DELAY = 100
+PAGE_FRAMES = 30  # each of the top windows is shown for 3 s
+TOP_WINDOWS = 3
 
 # laundry pixels tumbling inside the door, clockwise (row, col)
 DRUM_PATH = [(5, 4), (5, 5), (5, 6), (6, 7), (7, 7), (8, 6), (8, 5), (8, 4), (7, 3), (6, 3)]
@@ -43,6 +49,23 @@ WASHER = [
     "#.........#",
     "###########",
 ]
+
+# 11x12 radiator: "#" = fins (accent colour), "=" = pipe/feet; rows 0-3 hold rising heat
+HEATER = [
+    "...........",
+    "...........",
+    "...........",
+    "...........",
+    "##.##.##.##",
+    "##.##.##.##",
+    "##.##.##.##",
+    "##.##.##.##",
+    "##.##.##.##",
+    "##.##.##.##",
+    "===========",
+    ".=.......=.",
+]
+HEAT_COLUMNS = [0, 4, 6, 10]
 
 def _format_price(value):
     cents = int(math.round(value * 100))
@@ -85,26 +108,36 @@ def _hour_allowed(hour, start_from, start_until):
     # window wraps midnight, e.g. 22 → 6
     return hour >= start_from or hour < start_until
 
-def _best_window(slots, first, length, start_from, start_until):
-    # slots: list of (price, slot, is_tomorrow); returns (index, average) of cheapest window
-    best = -1
-    best_avg = 0.0
+def _rank_windows(slots, first, length, start_from, start_until, avoid):
+    # slots: list of (price, slot, is_tomorrow). Returns up to TOP_WINDOWS non-overlapping
+    # (index, average) windows, cheapest first — or most expensive first when avoid is set.
+    candidates = []
     for i in range(first, len(slots) - length + 1):
         if not _hour_allowed(int(slots[i][1]["hour"]), start_from, start_until):
             continue
         total = 0.0
         for j in range(i, i + length):
             total += slots[j][0]
-        avg = total / length
-        if best < 0 or avg < best_avg:
-            best = i
-            best_avg = avg
-    return best, best_avg
+        candidates.append((i, total / length))
+    candidates = sorted(candidates, key = lambda c: -c[1] if avoid else c[1])
 
-def _icon(scale, accent, step):
+    picked = []
+    for i, avg in candidates:
+        overlaps = False
+        for k, _ in picked:
+            if abs(i - k) < length:
+                overlaps = True
+                break
+        if not overlaps:
+            picked.append((i, avg))
+            if len(picked) == TOP_WINDOWS:
+                break
+    return picked
+
+def _washer_icon(scale, accent, step):
     px = 1 * scale
     n = len(DRUM_PATH)
-    laundry = [DRUM_PATH[step % n], DRUM_PATH[(step + n // 2) % n]]
+    laundry = [DRUM_PATH[step % n], DRUM_PATH[(step + n // 2) % n]] if step >= 0 else []
     rows = []
     for r, row in enumerate(WASHER):
         cells = []
@@ -117,8 +150,81 @@ def _icon(scale, accent, step):
         rows.append(render.Row(children = cells))
     return render.Column(children = rows)
 
-def _spinning_icon(scale, accent):
-    return render.Animation(children = [_icon(scale, accent, i) for i in range(len(DRUM_PATH))])
+def _heater_icon(scale, accent, step):
+    px = 1 * scale
+    waves = []
+    if step >= 0:
+        # heat rising from every fin, each column one row out of phase
+        for k, c in enumerate(HEAT_COLUMNS):
+            waves.append((3 - (step + k) % 4, c))
+    rows = []
+    for r, row in enumerate(HEATER):
+        cells = []
+        for c, ch in enumerate(row.elems()):
+            if (r, c) in waves:
+                color = HEAT_COLOR
+            else:
+                color = accent if ch == "#" else (BODY_COLOR if ch == "=" else BG_COLOR)
+            cells.append(render.Box(width = px, height = px, color = color))
+        rows.append(render.Row(children = cells))
+    return render.Column(children = rows)
+
+def _animated_icon(heating, scale, accent, frames, moving):
+    # moving = False draws a still icon (no laundry / no heat) for the "not recommended" state
+    icon = _heater_icon if heating else _washer_icon
+    return render.Animation(children = [icon(scale, accent, i if moving else -1) for i in range(frames)])
+
+def _rank_dots(scale, count, current, accent):
+    dots = []
+    for k in range(count):
+        if dots:
+            dots.append(render.Box(width = 1 * scale, height = 2 * scale))
+        dots.append(render.Box(width = 3 * scale, height = 2 * scale, color = accent if k == current else DOT_DIM_COLOR))
+    return render.Row(children = dots)
+
+def _page(scale, width, height, fonts, heating, accent, moving, header, big, blink, footer, side):
+    small_font, big_font = fonts
+    info = [
+        render.Row(
+            expanded = True,
+            main_align = "space_between",
+            children = [render.Text(t, font = small_font, color = LABEL_COLOR) for t in header],
+        ),
+        render.Animation(
+            children = [
+                render.Text(big, font = big_font, color = accent if (not blink or i % 10 < 7) else BG_COLOR)
+                for i in range(PAGE_FRAMES)
+            ],
+        ),
+        render.Row(
+            expanded = True,
+            main_align = "space_between",
+            children = [render.Text(t, font = small_font, color = c) for t, c in footer],
+        ),
+    ]
+    return render.Box(
+        width = width,
+        height = height,
+        color = BG_COLOR,
+        child = render.Padding(
+            pad = (1 * scale, 1 * scale, 1 * scale, 1 * scale),
+            child = render.Row(
+                expanded = True,
+                children = [
+                    render.Column(
+                        cross_align = "center",
+                        children = [_animated_icon(heating, scale, accent, PAGE_FRAMES, moving), render.Box(width = 1, height = 2 * scale)] + side,
+                    ),
+                    render.Box(width = 2 * scale, height = 1),
+                    render.Column(
+                        expanded = True,
+                        main_align = "space_between",
+                        children = info,
+                    ),
+                ],
+            ),
+        ),
+    )
 
 def _render_message(msg):
     return render.Root(
@@ -133,7 +239,9 @@ def main(config):
     width, height = canvas.size()
     small_font = "terminus-12" if scale == 2 else "tom-thumb"
     big_font = "terminus-24" if scale == 2 else "6x13"
+    fonts = (small_font, big_font)
 
+    heating = config.str("appliance", "washer") == "heating"
     hours = int(config.str("duration", "2"))
     length = hours * 4
     start_from = int(config.str("start_from", "7"))
@@ -151,83 +259,76 @@ def main(config):
     if first < 0:
         return _render_message("No current slot")
 
+    tomorrow = data.get("hoursTomorrow") or []
     slots = [(s["priceCZK"] / 1000.0 * factor, s, False) for s in today]
-    slots += [(s["priceCZK"] / 1000.0 * factor, s, True) for s in (data.get("hoursTomorrow") or [])]
+    slots += [(s["priceCZK"] / 1000.0 * factor, s, True) for s in tomorrow]
 
-    best, best_avg = _best_window(slots, first, length, start_from, start_until)
-    if best < 0:
-        if not data.get("hoursTomorrow"):
-            return _render_message("Tomorrow's prices at ~13:00")
-        return _render_message("No window in allowed hours")
+    windows = _rank_windows(slots, first, length, start_from, start_until, heating)
+    label = "OFF" if heating else "%dh" % hours
+
+    if not windows:
+        # nothing left in the allowed hours (passed, or tomorrow not published yet)
+        reason = "tmrw 13:00" if not tomorrow else "no slot"
+        if heating:
+            page = _page(scale, width, height, fonts, True, OK_COLOR, True, [label, ""], "OK", False, [("no peak", LABEL_COLOR), ("", LABEL_COLOR)], [])
+        else:
+            page = _page(scale, width, height, fonts, False, AVOID_COLOR, False, [label, ""], "NO GO", False, [(reason, LABEL_COLOR), ("", LABEL_COLOR)], [])
+        return render.Root(delay = FRAME_DELAY, child = page)
+
+    upcoming_avg = 0.0
+    for j in range(first, len(slots)):
+        upcoming_avg += slots[j][0]
+    upcoming_avg = upcoming_avg / (len(slots) - first)
 
     now_avg = 0.0
     for j in range(first, first + length):
         now_avg += slots[j][0]
     now_avg = now_avg / length
-    saving = now_avg - best_avg
 
-    is_now = best == first
-    accent = NOW_COLOR if is_now else LATER_COLOR
-    start_slot = slots[best][1]
-    end_slot = slots[best + length - 1][1]
+    pages = []
+    for rank, (idx, avg) in enumerate(windows):
+        is_now = idx == first
+        start_slot = slots[idx][1]
+        end_slot = slots[idx + length - 1][1]
 
-    title = "%dh" % hours
-    if is_now:
-        big = "START!"
-    else:
-        big = _slot_time(start_slot)
-        if slots[best][2]:
-            title += " +1"
+        if heating:
+            accent = AVOID_COLOR
+            diff = avg - upcoming_avg
+            delta = ("+" + _format_price(diff), AVOID_COLOR) if diff > 0.005 else ("", AVOID_COLOR)
+        else:
+            accent = NOW_COLOR if is_now else LATER_COLOR
+            diff = now_avg - avg
+            delta = ("-" + _format_price(diff), SAVE_COLOR) if diff > 0.005 else ("", SAVE_COLOR)
 
-    info = [
-        render.Row(
-            expanded = True,
-            main_align = "space_between",
-            children = [
-                render.Text(title, font = small_font, color = LABEL_COLOR),
-                render.Text("to " + _end_time(end_slot), font = small_font, color = LABEL_COLOR),
-            ],
-        ),
-        # "START!" blinks when now is the best time
-        render.Animation(
-            children = [
-                render.Text(big, font = big_font, color = accent if (not is_now or i < 7) else BG_COLOR)
-                for i in range(len(DRUM_PATH))
-            ],
-        ),
-        render.Row(
-            expanded = True,
-            main_align = "space_between",
-            children = [
-                render.Text(_format_price(best_avg), font = small_font, color = BODY_COLOR),
-                render.Text("-" + _format_price(saving) if saving > 0.005 else "", font = small_font, color = SAVE_COLOR),
-            ],
-        ),
-    ]
+        if is_now:
+            big = "OFF!" if heating else "START!"
+        else:
+            big = _slot_time(start_slot)
+
+        side = [_rank_dots(scale, len(windows), rank, accent)]
+        if slots[idx][2]:
+            side.append(render.Box(width = 1, height = 1 * scale))
+            side.append(render.Text("+1", font = small_font, color = LABEL_COLOR))
+
+        pages.append(_page(
+            scale,
+            width,
+            height,
+            fonts,
+            heating,
+            accent,
+            True,
+            [label, "to " + _end_time(end_slot)],
+            big,
+            is_now,
+            [(_format_price(avg), BODY_COLOR), delta],
+            side,
+        ))
 
     return render.Root(
         delay = FRAME_DELAY,
-        child = render.Box(
-            width = width,
-            height = height,
-            color = BG_COLOR,
-            child = render.Padding(
-                pad = (1 * scale, 1 * scale, 1 * scale, 1 * scale),
-                child = render.Row(
-                    expanded = True,
-                    cross_align = "center",
-                    children = [
-                        _spinning_icon(scale, accent),
-                        render.Box(width = 2 * scale, height = 1),
-                        render.Column(
-                            expanded = True,
-                            main_align = "space_between",
-                            children = info,
-                        ),
-                    ],
-                ),
-            ),
-        ),
+        show_full_animation = True,
+        child = render.Sequence(children = pages),
     )
 
 def _hour_options():
@@ -238,9 +339,20 @@ def get_schema():
         version = "1",
         fields = [
             schema.Dropdown(
+                id = "appliance",
+                name = "Appliance",
+                desc = "Washer shows the cheapest times to run; heating shows the most expensive times to switch off.",
+                icon = "plug",
+                default = "washer",
+                options = [
+                    schema.Option(display = "Washing machine / dishwasher", value = "washer"),
+                    schema.Option(display = "Electric heating (times to avoid)", value = "heating"),
+                ],
+            ),
+            schema.Dropdown(
                 id = "duration",
-                name = "Program length",
-                desc = "How long the appliance runs.",
+                name = "Window length",
+                desc = "How long the appliance runs (washer) or stays off (heating).",
                 icon = "clock",
                 default = "2",
                 options = [schema.Option(display = "%d h" % h, value = str(h)) for h in [1, 2, 3, 4]],

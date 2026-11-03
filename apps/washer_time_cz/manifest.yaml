@@ -1,8 +1,8 @@
 ---
 id: washer-time-cz
 name: Washer Time CZ
-summary: Cheapest time to run appliances
-desc: Finds the cheapest upcoming window on the Czech OTE 15-minute spot market for running a washing machine or dishwasher. Shows the start time, average price and saving versus starting now. Data from spotovaelektrina.cz.
+summary: Best times for appliances
+desc: Rotates the top 3 upcoming windows on the Czech OTE 15-minute spot market - the cheapest times to run a washing machine or dishwasher, or the most expensive times to keep electric heating off. Shows NO GO when no window is left in the allowed hours. Data from spotovaelektrina.cz.
 author: Tronbyt
 fileName: washer_time_cz.star
 packageName: washer_time_cz
@@ -15,3 +15,4 @@ tags:
   - czech
   - spot
   - washing
+  - heating
