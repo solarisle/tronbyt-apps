@@ -31,6 +31,13 @@ FRAME_DELAY = 100
 PAGE_FRAMES = 30  # each of the top windows is shown for 3 s
 TOP_WINDOWS = 3
 
+# per-appliance settings: (config key prefix, default length h, default start_from, default start_until).
+# washer keeps the original un-prefixed keys so existing installations keep their values.
+APPLIANCE_SETTINGS = {
+    "washer": ("", "2", "7", "22"),
+    "heating": ("heating_", "2", "0", "0"),
+}
+
 # laundry pixels tumbling inside the door, clockwise (row, col)
 DRUM_PATH = [(5, 4), (5, 5), (5, 6), (6, 7), (7, 7), (8, 6), (8, 5), (8, 4), (7, 3), (6, 3)]
 
@@ -241,11 +248,13 @@ def main(config):
     big_font = "terminus-24" if scale == 2 else "6x13"
     fonts = (small_font, big_font)
 
-    heating = config.str("appliance", "washer") == "heating"
-    hours = int(config.str("duration", "2"))
+    appliance = config.str("appliance", "washer")
+    heating = appliance == "heating"
+    prefix, default_hours, default_from, default_until = APPLIANCE_SETTINGS.get(appliance, APPLIANCE_SETTINGS["washer"])
+    hours = int(config.str(prefix + "duration", default_hours))
     length = hours * 4
-    start_from = int(config.str("start_from", "7"))
-    start_until = int(config.str("start_until", "22"))
+    start_from = int(config.str(prefix + "start_from", default_from))
+    start_until = int(config.str(prefix + "start_until", default_until))
     with_vat = config.bool("with_vat", False)
     factor = VAT if with_vat else 1.0
 
@@ -334,6 +343,53 @@ def main(config):
 def _hour_options():
     return [schema.Option(display = "%s:00" % _two(h), value = str(h)) for h in range(24)]
 
+def _appliance_fields(appliance):
+    prefix, default_hours, default_from, default_until = APPLIANCE_SETTINGS.get(appliance, APPLIANCE_SETTINGS["washer"])
+    if appliance == "heating":
+        texts = (
+            "Heating off length",
+            "How long you can keep the heating off.",
+            "Peaks from",
+            "Only look for expensive windows starting from this hour. Same value as 'until' means all day.",
+            "Peaks until",
+            "Latest start hour (exclusive). Can wrap past midnight.",
+        )
+    else:
+        texts = (
+            "Program length",
+            "How long the washing machine or dishwasher runs.",
+            "Allowed start from",
+            "Earliest start hour. Same value as 'until' means any time.",
+            "Allowed start until",
+            "Latest start hour (exclusive). Can wrap past midnight, e.g. 22 → 6.",
+        )
+    return [
+        schema.Dropdown(
+            id = prefix + "duration",
+            name = texts[0],
+            desc = texts[1],
+            icon = "clock",
+            default = default_hours,
+            options = [schema.Option(display = "%d h" % h, value = str(h)) for h in [1, 2, 3, 4]],
+        ),
+        schema.Dropdown(
+            id = prefix + "start_from",
+            name = texts[2],
+            desc = texts[3],
+            icon = "hourglassStart",
+            default = default_from,
+            options = _hour_options(),
+        ),
+        schema.Dropdown(
+            id = prefix + "start_until",
+            name = texts[4],
+            desc = texts[5],
+            icon = "hourglassEnd",
+            default = default_until,
+            options = _hour_options(),
+        ),
+    ]
+
 def get_schema():
     return schema.Schema(
         version = "1",
@@ -349,29 +405,10 @@ def get_schema():
                     schema.Option(display = "Electric heating (times to avoid)", value = "heating"),
                 ],
             ),
-            schema.Dropdown(
-                id = "duration",
-                name = "Window length",
-                desc = "How long the appliance runs (washer) or stays off (heating).",
-                icon = "clock",
-                default = "2",
-                options = [schema.Option(display = "%d h" % h, value = str(h)) for h in [1, 2, 3, 4]],
-            ),
-            schema.Dropdown(
-                id = "start_from",
-                name = "Allowed start from",
-                desc = "Earliest start hour. Same value as 'until' means any time.",
-                icon = "hourglassStart",
-                default = "7",
-                options = _hour_options(),
-            ),
-            schema.Dropdown(
-                id = "start_until",
-                name = "Allowed start until",
-                desc = "Latest start hour (exclusive). Can wrap past midnight, e.g. 22 → 6.",
-                icon = "hourglassEnd",
-                default = "22",
-                options = _hour_options(),
+            schema.Generated(
+                id = "appliance_settings",
+                source = "appliance",
+                handler = _appliance_fields,
             ),
             schema.Toggle(
                 id = "with_vat",
