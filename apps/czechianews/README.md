@@ -1,11 +1,8 @@
-To display Czech headline news on your Tidbyt, you can use sources like seznamzpravy.cz or irozhlas.cz. The text color and scrolling speed are adjustable.
+Rotating Czech headline news on your Tronbyt/Tidbyt, from seznamzpravy.cz or irozhlas.cz.
 
-Examples
+- Header: source mark, section tag (DOMOV, SVET, EKONOM, SPORT, KULTURA…) and, for iRozhlas, the publish time (yellow when it is less than 30 minutes old).
+- Progress bar: one segment per headline in the current cycle.
+- Headlines slide in with a fade, long ones scroll up line by line, then slide out.
+- The number of headlines adapts to the display time set on the server (Pixlet 0.55+), and each cycle continues where the previous one stopped.
 
-seznamzpravy.cz
-
-![](demo_seznam.gif)
-
-irozhlas.cz
-
-![](demo_irozhlas.gif)
+Settings: news source, scroll speed, headline colour.
