@@ -1,260 +1,516 @@
 """
 Applet: Google Review
 Summary: Display Google Maps reviews
-Description: Shows the latest Google Maps review with rating, date, reviewer name, and snippet.
-Author: Tronbyt
+Description: Rotates the newest Google Maps reviews of a place with star rating, age, reviewer and text. Can show only reviews from the last N days and hide itself when there are none.
+Author: solarisle
 """
 
+load("animation.star", "animation")
+load("cache.star", "cache")
 load("http.star", "http")
-load("random.star", "random")
-load("render.star", "render")
+load("render.star", "canvas", "render")
 load("schema.star", "schema")
 load("time.star", "time")
-load("images/star_filled.webp", STAR_FILLED_ASSET = "file")
-load("images/star_empty.webp", STAR_EMPTY_ASSET = "file")
 
-CACHE_TIMEOUT = 43200  # 12 hours
-MAX_CHARS_PER_LINE = 12  # approximate chars that fit in 64px width
-MAX_CHARS_PER_LINE_WIDE = 10  # ~10 chars fit in 64px with 6x13 font (6px/char)
-DEFAULT_TEXT_SPEED = "100"
+API_URL = "https://serpapi.com/search.json?engine=google_maps_reviews&sort_by=newestFirst&data_id=%s&hl=%s&api_key=%s"
+CACHE_TTL = 43200  # 12 h: SerpAPI free plan has 100 searches per month
+POOL_SIZE = 8  # one SerpAPI page of newest reviews
 
-ISO_DATE_FORMAT = "2006-01-02T15:04:05Z"  # serpapi iso_date, e.g. "2026-07-17T18:00:57Z"
+# ---- Layout (64 x 32) -------------------------------------------------------
+# rows 0-6   header: five 5x5 stars, age of the review (or place rating)
+# row  7     progress bar: one segment per card in this cycle
+# rows 8-31  body: reviewer name, then the review text in tb-8, scrolled
+WIDTH = 64
+HEADER_H = 7
+BODY_H = 24
+LINE_H = 8
+TEXT_X = 1
+TEXT_W = WIDTH - TEXT_X
 
-# Load star icons
-STAR_FILLED = STAR_FILLED_ASSET.readall()
-STAR_EMPTY = STAR_EMPTY_ASSET.readall()
+# ---- Timeline (milliseconds, converted to frames at the chosen speed) --------
+ENTER_MS = 600
+EXIT_MS = 400
+HOLD_START_MS = 1200
+HOLD_END_MS = 1000
+HOLD_SHORT_MS = 3000
+HOLD_INTRO_MS = 1500
+HOLD_MIN_MS = 800
+HOLD_MAX_MS = 4000
+FADE_FROM = 0.3
+DEFAULT_BUDGET_MS = 15000
+NO_LIMIT_BUDGET_MS = 30000
 
-# Modern color palette
-COLOR_HEADER = "#E8F5E9"        # Light mint green
-COLOR_RATING = "#FFC107"        # Modern amber/gold
-COLOR_DATE = "#81D4FA"          # Modern light cyan
-COLOR_USER = "#FFB74D"          # Warm orange
-COLOR_SNIPPET = "#CE93D8"       # Modern purple
+HAS_FADE = hasattr(animation, "Fade")
+HAS_DWELL = hasattr(canvas, "max_duration_ms")
 
-NEWS_FLASH_TEXT = "!NEWS!"
-FLASH_BG_COLORS = ["#FF1744", "#FFD700"]  # red / gold alternating
-FLASH_TEXT_COLORS = ["#FFFFFF", "#000000"]  # matching contrast per bg
-FLASH_DURATION_MS = 2000
+# ---- Colours ----------------------------------------------------------------
+ACCENT = "#4285F4"  # Google blue
+STAR_ON = "#FBBC04"  # Google yellow
+STAR_OFF = "#3A3A3A"
+TEXT_COLOR = "#FFFFFF"
+NAME_COLOR = "#FFB74D"
+DIM_COLOR = "#8A8A8A"
+FRESH_COLOR = "#FBBC04"
+TRACK_COLOR = "#333333"
+ERROR_COLOR = "#FF3333"
+LOGO_COLORS = ["#4285F4", "#EA4335", "#FBBC04", "#4285F4", "#34A853", "#EA4335"]
 
-def build_star_row(rating_int):
-    """Build a row of star icons based on rating"""
-    stars = []
+STAR = [
+    "..#..",
+    ".###.",
+    "#####",
+    ".###.",
+    ".#.#.",
+]
 
-    # Add filled stars (yellow gradient)
-    for i in range(rating_int):
-        stars.append(
-            render.Image(src = STAR_FILLED, width = 10, height = 10)
-        )
+# tb-8 glyph advances (px) that differ from the default 5, from fonts/tb-8.bdf
+TB8_WIDTHS = {
+    " ": 3,
+    "!": 2,
+    "\"": 4,
+    "'": 2,
+    "(": 3,
+    ")": 3,
+    "+": 4,
+    ",": 3,
+    "-": 4,
+    ".": 2,
+    ":": 2,
+    ";": 3,
+    "<": 4,
+    "=": 4,
+    ">": 4,
+    "?": 4,
+    "@": 6,
+    "I": 4,
+    "J": 4,
+    "M": 6,
+    "T": 4,
+    "V": 6,
+    "W": 6,
+    "Y": 6,
+    "^": 4,
+    "`": 3,
+    "c": 4,
+    "i": 4,
+    "j": 4,
+    "l": 4,
+    "m": 6,
+    "s": 4,
+    "v": 4,
+    "w": 6,
+    "|": 2,
+}
 
-    # Add empty stars (outlined)
-    for i in range(5 - rating_int):
-        stars.append(
-            render.Image(src = STAR_EMPTY, width = 10, height = 10)
-        )
+# ---- Text helpers -----------------------------------------------------------
 
-    # Add rating number
-    stars.append(
-        render.Text(
-            content = " " + str(rating_int) + "/5",
-            color = COLOR_RATING,
-            font = "CG-pixel-3x5-mono",
-        )
+def _clean(text):
+    text = text.replace(" ", " ").replace("\n", " ").replace("\r", " ").replace("\t", " ")
+    return " ".join([w for w in text.split(" ") if w])
+
+def _text_width(text):
+    total = 0
+    for ch in text.codepoints():
+        total += TB8_WIDTHS.get(ch, 5)
+    return total
+
+def _split_long_word(word):
+    pieces = []
+    current = ""
+    for ch in word.codepoints():
+        if current and _text_width(current + ch) > TEXT_W:
+            pieces.append(current)
+            current = ch
+        else:
+            current += ch
+    if current:
+        pieces.append(current)
+    return pieces
+
+def wrap_lines(text):
+    """Word-wrap by real tb-8 pixel widths so no line is clipped."""
+    lines = []
+    current = ""
+    for word in text.split(" "):
+        if not word:
+            continue
+        candidate = word if not current else current + " " + word
+        if _text_width(candidate) <= TEXT_W:
+            current = candidate
+            continue
+        if current:
+            lines.append(current)
+            current = ""
+        if _text_width(word) <= TEXT_W:
+            current = word
+        else:
+            pieces = _split_long_word(word)
+            lines.extend(pieces[:-1])
+            current = pieces[-1]
+    if current:
+        lines.append(current)
+    return lines
+
+def _one_line(text):
+    lines = wrap_lines(text)
+    if not lines:
+        return ""
+    if len(lines) == 1:
+        return lines[0]
+    chars = list(lines[0].codepoints())
+    for _ in range(len(chars)):
+        if _text_width("".join(chars) + "..") <= TEXT_W:
+            break
+        chars = chars[:-1]
+    return "".join(chars) + ".."
+
+def _one_decimal(value):
+    tenths = int(value * 10 + 0.5)
+    return "%d.%d" % (tenths // 10, tenths % 10)
+
+# ---- Data -------------------------------------------------------------------
+
+def _parse_time(iso):
+    """SerpAPI iso_date is RFC3339 UTC, e.g. "2026-07-17T18:00:57Z"."""
+    if not iso or len(iso) < 20:
+        return None
+    return time.parse_time(iso)
+
+def _age(seconds):
+    if seconds < 3600:
+        return "%dm" % max(1, seconds // 60)
+    if seconds < 86400:
+        return "%dh" % (seconds // 3600)
+    if seconds < 86400 * 365:
+        return "%dd" % (seconds // 86400)
+    return "%dy" % (seconds // (86400 * 365))
+
+def parse_reviews(data, now, days):
+    """Newest reviews, optionally only those from the last `days` days."""
+    items = []
+    for review in data.get("reviews", [])[:POOL_SIZE]:
+        posted = _parse_time(review.get("iso_date", ""))
+        age = now.unix - posted.unix if posted else None
+        if days > 0 and (age == None or age > days * 86400):
+            continue
+        rating = review.get("rating") or 0
+        items.append({
+            "rating": int(rating),
+            "age": age,
+            "date": review.get("date", ""),
+            "user": _clean((review.get("user") or {}).get("name", "") or "Anonymous"),
+            "text": _clean(review.get("snippet", "") or ""),
+        })
+    return items
+
+def rotate(items, data_id):
+    """Start each display cycle where the previous one stopped."""
+    key = "google_review_cursor_" + data_id
+    cursor = cache.get(key)
+    start = int(cursor) % len(items) if cursor and cursor.isdigit() else 0
+    return items[start:] + items[:start], key, start
+
+# ---- Timeline planning -----------------------------------------------------
+
+def _frames(ms, delay):
+    return max(1, ms // delay)
+
+def _make_card(kind, lines, data, delay, short_ms):
+    overflow = max(0, len(lines) * LINE_H - BODY_H)
+    if overflow:
+        hold_a, hold_b = _frames(HOLD_START_MS, delay), _frames(HOLD_END_MS, delay)
+    else:
+        hold_a, hold_b = _frames(short_ms, delay), 0
+    return {
+        "kind": kind,
+        "data": data,
+        "lines": lines,
+        "overflow": overflow,
+        "enter": _frames(ENTER_MS, delay),
+        "exit": _frames(EXIT_MS, delay),
+        "hold_a": hold_a,
+        "hold_b": hold_b,
+    }
+
+def _review_card(item, delay):
+    lines = [(_one_line(item["user"]), NAME_COLOR)]
+    if item["text"]:
+        lines += [(line, TEXT_COLOR) for line in wrap_lines(item["text"])]
+    else:
+        lines.append(("(no text)", DIM_COLOR))
+    return _make_card("review", lines, item, delay, HOLD_SHORT_MS)
+
+def _intro_card(place, delay):
+    lines = [(line, TEXT_COLOR) for line in wrap_lines(place["title"])[:3]]
+    return _make_card("intro", lines, place, delay, HOLD_INTRO_MS)
+
+def _card_frames(card):
+    return card["enter"] + card["hold_a"] + card["overflow"] + card["hold_b"] + card["exit"]
+
+def _budget_ms():
+    if not HAS_DWELL:
+        return DEFAULT_BUDGET_MS
+    budget_ms = canvas.max_duration_ms()
+    return budget_ms if budget_ms > 0 else NO_LIMIT_BUDGET_MS
+
+def plan_cards(cards, delay):
+    """Fit as many cards as the host's dwell time allows; the first always stays."""
+    budget = _budget_ms() // delay
+    chosen = []
+    used = 0
+    for card in cards:
+        f = _card_frames(card)
+        if chosen and used + f > budget:
+            break
+        chosen.append(card)
+        used += f
+
+    if used > budget:
+        floor = _frames(HOLD_MIN_MS, delay)
+        for card in chosen:
+            card["hold_a"] = min(card["hold_a"], floor)
+            if card["hold_b"]:
+                card["hold_b"] = min(card["hold_b"], floor)
+        return chosen
+
+    cap = _frames(HOLD_MAX_MS, delay)
+    extra = (budget - used) // len(chosen)
+    for card in chosen:
+        if card["overflow"]:
+            card["hold_a"] = min(cap, card["hold_a"] + extra // 2)
+            card["hold_b"] = min(cap, card["hold_b"] + extra - extra // 2)
+        else:
+            card["hold_a"] = min(cap, card["hold_a"] + extra)
+    return chosen
+
+# ---- Widgets ----------------------------------------------------------------
+
+def _bitmap(rows, color):
+    out = []
+    for line in rows:
+        out.append(render.Row(children = [
+            render.Box(width = 1, height = 1, color = color if ch == "#" else None)
+            for ch in line.elems()
+        ]))
+    return render.Column(children = out)
+
+def _stars(rating):
+    children = []
+    for i in range(5):
+        if i:
+            children.append(render.Box(width = 1, height = 5))
+        children.append(_bitmap(STAR, STAR_ON if i < rating else STAR_OFF))
+    return render.Padding(pad = (0, 1, 0, 0), child = render.Row(children = children))
+
+def _small(text, color):
+    return render.Padding(
+        pad = (0, 1, 0, 0),
+        child = render.Text(text, font = "tom-thumb", color = color),
     )
 
-    return stars
+def _header(card):
+    data = card["data"]
+    if card["kind"] == "intro":
+        stars = int(data["rating"] + 0.5)
+        right = _small(_one_decimal(data["rating"]) if data["rating"] else "", STAR_ON)
+    else:
+        stars = data["rating"]
+        if data["age"] != None:
+            fresh = data["age"] < 86400
+            right = _small("NEW" if data["age"] < 3600 else _age(data["age"]), FRESH_COLOR if fresh else DIM_COLOR)
+        else:
+            right = _small("", DIM_COLOR)
+    return render.Box(
+        width = WIDTH,
+        height = HEADER_H,
+        child = render.Row(
+            expanded = True,
+            main_align = "space_between",
+            children = [_stars(stars), right],
+        ),
+    )
 
-def _is_today(iso_date_str, now):
-    """Return True if iso_date_str (RFC3339 UTC) is on the same calendar day as now."""
-    if not iso_date_str:
-        return False
-    if len(iso_date_str) != 20 or not iso_date_str.endswith("Z"):
-        return False
-    review_time = time.parse_time(iso_date_str, ISO_DATE_FORMAT, time.tz())
-    return (review_time.year == now.year and
-            review_time.month == now.month and
-            review_time.day == now.day)
+def _progress(count, index, frames):
+    gaps = count - 1
+    base = (WIDTH - gaps) // count
+    spare = WIDTH - gaps - base * count
+    children = []
+    for i in range(count):
+        w = base + (1 if i < spare else 0)
+        if i < index:
+            seg = render.Box(width = w, height = 1, color = ACCENT)
+        elif i > index:
+            seg = render.Box(width = w, height = 1, color = TRACK_COLOR)
+        else:
+            seg = render.Stack(children = [
+                render.Box(width = w, height = 1, color = TRACK_COLOR),
+                animation.Transformation(
+                    child = render.Box(width = w, height = 1, color = ACCENT),
+                    width = w,
+                    height = 1,
+                    duration = frames,
+                    keyframes = [
+                        animation.Keyframe(0.0, [animation.Translate(-w, 0)]),
+                        animation.Keyframe(1.0, [animation.Translate(0, 0)]),
+                    ],
+                ),
+            ])
+        children.append(seg)
+        if i < count - 1:
+            children.append(render.Box(width = 1, height = 1))
+    return render.Row(children = children)
 
-def _make_news_flash(frame_count):
-    """Full-screen alternating-background "!NEWS!" flash, ~2s total.
-    A Sequence sibling of review_marquee - never nests Marquee inside
-    this Animation, avoiding the Animation/Marquee scroll-reset gotcha."""
-    frames = []
-    for i in range(frame_count):
-        idx = i % 2
-        frames.append(
-            render.Box(
-                width = 64,
-                height = 32,
-                color = FLASH_BG_COLORS[idx],
-                child = render.Text(content = NEWS_FLASH_TEXT, font = "10x20", color = FLASH_TEXT_COLORS[idx]),
+def _keyframe(at, total, y, fade, curve = "linear", shift = 0):
+    return animation.Keyframe(
+        percentage = at * 1.0 / total,
+        transforms = [animation.Translate(0, y + shift)] + ([animation.Fade(fade)] if HAS_FADE else []),
+        curve = curve,
+    )
+
+def _body(card, frames):
+    overflow = card["overflow"]
+    t_in = card["enter"]
+    t_scroll = t_in + card["hold_a"]
+    t_scrolled = t_scroll + overflow
+    t_out = frames - card["exit"]
+
+    canvas_h = max(BODY_H, len(card["lines"]) * LINE_H)
+    shift = (canvas_h - BODY_H) // 2
+    keyframes = [
+        _keyframe(0, frames, LINE_H, FADE_FROM, "ease_out", shift = shift),
+        _keyframe(t_in, frames, 0, 1.0, shift = shift),
+        _keyframe(t_scroll, frames, 0, 1.0, shift = shift),
+    ]
+    if overflow:
+        keyframes.append(_keyframe(t_scrolled, frames, -overflow, 1.0, shift = shift))
+    if t_out > t_scrolled:
+        keyframes.append(_keyframe(t_out, frames, -overflow, 1.0, "ease_in", shift = shift))
+    keyframes.append(_keyframe(frames, frames, -overflow - LINE_H, FADE_FROM, shift = shift))
+
+    if card["kind"] == "intro":
+        # Place name centred in the body; first line pushed down when it is short.
+        top = (BODY_H - len(card["lines"]) * LINE_H) // 2
+        content = render.Padding(
+            pad = (0, top, 0, 0),
+            child = render.Column(
+                cross_align = "center",
+                children = [
+                    render.Box(width = WIDTH, height = LINE_H, child = render.Text(text, font = "tb-8", color = color))
+                    for text, color in card["lines"]
+                ],
             ),
         )
-    return render.Animation(children = frames)
+    else:
+        content = render.Column(children = [
+            render.Padding(pad = (TEXT_X, 0, 0, 0), child = render.Text(text, font = "tb-8", color = color))
+            for text, color in card["lines"]
+        ])
 
-def word_wrap(text, max_chars):
-    """Wrap text at word boundaries to prevent mid-word breaks."""
-    words = text.split(" ")
-    lines = []
-    current_line = ""
+    return render.Box(
+        width = WIDTH,
+        height = BODY_H,
+        child = animation.Transformation(
+            child = content,
+            width = WIDTH,
+            height = canvas_h,
+            duration = frames,
+            keyframes = keyframes,
+        ),
+    )
 
-    for word in words:
-        if len(word) > max_chars:
-            if current_line:
-                lines.append(current_line)
-                current_line = ""
-            chunks = len(word) // max_chars + (1 if len(word) % max_chars else 0)
-            for i in range(chunks):
-                chunk = word[i * max_chars:(i + 1) * max_chars]
-                if i == chunks - 1:
-                    current_line = chunk
-                else:
-                    lines.append(chunk)
-        elif current_line == "":
-            current_line = word
-        elif len(current_line) + 1 + len(word) <= max_chars:
-            current_line = current_line + " " + word
-        else:
-            lines.append(current_line)
-            current_line = word
+def _scene(card, index, count):
+    frames = _card_frames(card)
 
-    if current_line:
-        lines.append(current_line)
+    # animation.Fade draws outside the parent Box's clip: paint the header last,
+    # on an opaque backing, so the scrolling body never bleeds into it.
+    return render.Stack(children = [
+        render.Padding(pad = (0, HEADER_H + 1, 0, 0), child = _body(card, frames)),
+        render.Box(
+            width = WIDTH,
+            height = HEADER_H + 1,
+            color = "#000000",
+            child = render.Column(children = [
+                _header(card),
+                _progress(count, index, frames),
+            ]),
+        ),
+    ])
 
-    return "\n".join(lines)
+def _logo():
+    return render.Row(children = [
+        render.Text(ch, font = "tom-thumb", color = LOGO_COLORS[i])
+        for i, ch in enumerate("Google".elems())
+    ])
+
+def _message(title, detail):
+    return render.Root(
+        child = render.Column(children = [
+            render.Padding(pad = (1, 1, 0, 0), child = render.Box(width = WIDTH - 1, height = HEADER_H - 1, child = render.Row(expanded = True, children = [_logo()]))),
+            render.Box(width = WIDTH, height = 1, color = TRACK_COLOR),
+            render.Box(
+                width = WIDTH,
+                height = BODY_H,
+                child = render.Column(
+                    cross_align = "center",
+                    children = [
+                        render.Text(title, font = "tb-8", color = ERROR_COLOR),
+                        render.WrappedText(detail, font = "tom-thumb", color = DIM_COLOR, width = WIDTH - 2, align = "center"),
+                    ],
+                ),
+            ),
+        ]),
+    )
+
+# ---- Main -------------------------------------------------------------------
+
+def _days(config):
+    raw = config.str("days", "0").strip()
+    return int(raw) if raw.isdigit() else 0
 
 def main(config):
-    # Get API key and data_id from config
-    api_key = config.get("api_key", "")
-    data_id = config.get("data_id", "")
-    hl = config.get("language", "en")
+    api_key = config.str("api_key", "")
+    data_id = config.str("data_id", "")
+    hl = config.str("language", "") or "en"
+    delay = int(config.str("text_speed", "100"))
+    days = _days(config)
 
     if not api_key:
-        return render_error("No API key provided")
-
+        return _message("No API key", "Set your SerpAPI key")
     if not data_id:
-        return render_error("No data_id provided")
+        return _message("No place", "Set the place data_id")
 
-    # Build API URL with provided API key, data_id, and language preference
-    api_url = "https://serpapi.com/search.json?engine=google_maps_reviews&data_id=" + data_id + "&sort_by=newestFirst&hl=" + hl + "&api_key=" + api_key
-
-    # Fetch data from API
-    response = http.get(api_url, ttl_seconds = CACHE_TIMEOUT)
-
+    response = http.get(API_URL % (data_id, hl, api_key), ttl_seconds = CACHE_TTL)
     if response.status_code != 200:
-        error_data = response.json()
-        error_msg = error_data.get("error", "API Error: " + str(response.status_code))
-        return render_error(error_msg)
-
+        return _message("Unavailable", "HTTP %d" % response.status_code)
     data = response.json()
+    if data.get("error"):
+        return _message("API error", data["error"])
 
-    # Get place name from response
-    place_info = data.get("place_info", {})
-    place_name = place_info.get("title", "GOOGLE REVIEW")
+    now = time.now()
+    items = parse_reviews(data, now, days)
+    if not items:
+        if days > 0:
+            return []  # nothing new in the window: skip this app in the rotation
+        return _message("No reviews", "for this place")
 
-    # Get reviews and pick a random one (up to first 5)
-    reviews = data.get("reviews", [])
-    if not reviews:
-        return render_error("No reviews found")
+    place_info = data.get("place_info") or {}
+    place = {
+        "title": _clean(place_info.get("title", "") or "Google Review"),
+        "rating": float(place_info.get("rating") or 0),
+    }
 
-    review_count = min(len(reviews), 5)
-    candidates = reviews[:review_count]
-
-    now = time.now().in_location(time.tz())
-    today_candidates = [r for r in candidates if _is_today(r.get("iso_date", ""), now)]
-
-    if today_candidates:
-        review = today_candidates[random.number(0, len(today_candidates) - 1)]
-        is_today_review = True
-    else:
-        review = candidates[random.number(0, review_count - 1)]
-        is_today_review = False
-
-    rating = review.get("rating")
-    date = review.get("date", "Unknown")
-    user_name = review.get("user", {}).get("name", "Anonymous")
-    snippet = review.get("snippet", "No comment provided")
-
-    # Format rating display
-    rating_int = 0
-    if rating:
-        rating_int = int(rating)
-
-    text_delay = int(config.str("text_speed", DEFAULT_TEXT_SPEED))
-
-    review_marquee = render.Marquee(
-        width = 64,
-        height = 32,
-        scroll_direction = "vertical",
-        align = "center",
-        child = render.Column(
-            cross_align = "center",
-            children = [
-                # Header
-                render.WrappedText(
-                    content = word_wrap(place_name, MAX_CHARS_PER_LINE_WIDE),
-                    color = COLOR_HEADER,
-                    #font = "6x13",
-                    width = 64,
-                ),
-                render.Box(width = 64, height = 4),
-
-                # Rating with multiple stars
-                render.Row(
-                    main_align = "center",
-                    cross_align = "center",
-                    children = build_star_row(rating_int if rating else 0),
-                ),
-                render.Box(width = 64, height = 4),
-
-                # Date
-                render.WrappedText(
-                    content = word_wrap("Date: " + date, MAX_CHARS_PER_LINE_WIDE),
-                    color = COLOR_DATE,
-                    #font = "6x13",
-                    width = 64,
-                ),
-                render.Box(width = 64, height = 4),
-
-                # User Name
-                render.WrappedText(
-                    content = word_wrap("By: " + user_name, MAX_CHARS_PER_LINE_WIDE),
-                    color = COLOR_USER,
-                    #font = "6x13",
-                    width = 64,
-                ),
-                render.Box(width = 64, height = 4),
-
-                # Snippet
-                render.WrappedText(
-                    content = word_wrap(snippet, MAX_CHARS_PER_LINE),
-                    color = COLOR_SNIPPET,
-                    width = 64,
-                ),
-            ],
-        ),
-    )
-
-    if is_today_review:
-        flash_frame_count = max(2, FLASH_DURATION_MS // text_delay)
-        root_child = render.Sequence(
-            children = [_make_news_flash(flash_frame_count), review_marquee],
-        )
-    else:
-        root_child = review_marquee
+    ordered, cursor_key, start = rotate(items, data_id)
+    cards = [_intro_card(place, delay)] + [_review_card(item, delay) for item in ordered]
+    cards = plan_cards(cards, delay)
+    shown = len(cards) - 1  # the intro is not a review
+    cache.set(cursor_key, str((start + max(1, shown)) % len(items)), ttl_seconds = 86400)
 
     return render.Root(
-        delay = text_delay,
-        child = root_child,
-    )
-
-def render_error(error_text):
-    """Render error message"""
-    return render.Root(
-        child = render.WrappedText(
-            content = "ERROR: " + error_text,
-            color = "#ff0000",
-            width = 64,
-        ),
+        delay = delay,
+        child = render.Sequence(children = [
+            _scene(card, i, len(cards))
+            for i, card in enumerate(cards)
+        ]),
     )
 
 def get_schema():
@@ -264,13 +520,14 @@ def get_schema():
             schema.Text(
                 id = "api_key",
                 name = "SerpAPI Key",
-                desc = "Your SerpAPI key (get from serpapi.com/manage-api-key)",
+                desc = "Your SerpAPI key (serpapi.com/manage-api-key).",
                 icon = "key",
+                secret = True,
             ),
             schema.Text(
                 id = "data_id",
                 name = "Google Maps Place ID",
-                desc = "Google Maps data_id from SerpAPI search results",
+                desc = "Google Maps data_id from SerpAPI search results.",
                 icon = "mapPin",
             ),
             schema.Text(
@@ -279,25 +536,23 @@ def get_schema():
                 desc = "Language code for reviews (e.g. en, ja, fr). Defaults to en.",
                 icon = "language",
             ),
+            schema.Text(
+                id = "days",
+                name = "Only Last N Days",
+                desc = "Show only reviews from the last N days and hide the app when there are none. 0 shows the newest reviews.",
+                icon = "calendarDays",
+                default = "0",
+            ),
             schema.Dropdown(
                 id = "text_speed",
-                name = "Display Speed",
-                desc = "The speed for scrolling the content.",
+                name = "Scroll Speed",
+                desc = "How fast long reviews scroll (1 px per frame).",
                 icon = "personRunning",
                 default = "100",
                 options = [
-                    schema.Option(
-                        display = "Fast",
-                        value = "50",
-                    ),
-                    schema.Option(
-                        display = "Normal",
-                        value = "100",
-                    ),
-                    schema.Option(
-                        display = "Slow",
-                        value = "150",
-                    ),
+                    schema.Option(display = "Fast", value = "50"),
+                    schema.Option(display = "Normal", value = "100"),
+                    schema.Option(display = "Slow", value = "150"),
                 ],
             ),
         ],

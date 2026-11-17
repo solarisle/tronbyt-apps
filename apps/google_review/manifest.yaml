@@ -1,13 +1,13 @@
 ---
 id: google-review
 name: Google Review
-summary: Display Google Maps reviews
-desc: Shows Google Maps reviews with rating, date, reviewer name, and snippet.
+summary: Newest Google Maps reviews
+desc: Rotates the newest Google Maps reviews of a place with star rating, age, reviewer and text. Can show only reviews from the last N days and hide itself when there are none.
 author: Solarisle
 fileName: google_review.star
 packageName: google_review
 recommendedInterval: 720
-category: information
+category: lifestyle
 tags:
   - google-maps
   - reviews
